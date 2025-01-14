@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Form</title>
+</head>
+<body>
+    <h1>Registration Form</h1>
+    <form action="http://127.0.0.1:8000/signup" method="post" enctype="multipart/form-data">
+        <label for="user_type">User Type:</label>
+        <select id="user_type" name="user_type">
+            <option value="volunteer" selected>Volunteer</option>
+            <option value="elder">Elder</option>
+        </select>
+        <br><br>
+
+        <label for="full_name">Full Name:</label>
+        <input type="text" id="full_name" name="full_name" value="abcd" required>
+        <br><br>
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" value="string@example.com" required>
+        <br><br>
+
+        <label for="password">Password:</label>
+        <input type="password" id="password" name="password" value="string123" >
+        <br><br>
+
+        <label for="confirm_password">Confirm Password:</label>
+        <input type="password" id="confirm_password" name="confirm_password" value="string123" >
+        <br><br>
+
+        <label for="dob">Date of Birth:</label>
+        <input type="date" id="dob" name="dob" value="2025-01-14" required>
+        <br><br>
+
+        <label for="country_code">Country Code:</label>
+        <input type="text" id="country_code" name="country_code" value="+91">
+        <br><br>
+
+        <label for="contact_number">Contact Number:</label>
+        <input type="text" id="contact_number" name="contact_number" value="987654321" required>
+        <br><br>
+
+        <label for="bio">Bio:</label>
+        <textarea id="bio" name="bio">Hello nice to meet you</textarea>
+        <br><br>
+
+        <label for="profile_image">Profile Image:</label>
+        <input type="file" id="profile_image" name="profile_image">
+        <br><br>
+
+        <input type="submit" value="Submit">
+    </form>
+</body>
+</html>
