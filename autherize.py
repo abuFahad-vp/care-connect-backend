@@ -6,13 +6,14 @@ from jwt.exceptions import InvalidTokenError
 import jwt
 from fastapi.security import OAuth2PasswordBearer
 from db_op import DB
-from model import UserBase, ElderStatus
+from model import UserBase, ElderStatus, get_record_form
 
 class Autherize:
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
     SECRET_KEY = "aca9754d810d35c36707c65d81475de59aba95d37c3a133882c5551490490120"
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 30
+    TIME_GAP = timedelta(seconds=10)
     db: DB = None
     
     @staticmethod
@@ -57,6 +58,12 @@ class Autherize:
         return current_user
 
     @staticmethod
+    def dep_only_volunteer(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
+        if current_user.user_type != "volunteer":
+            raise Autherize.auth_exception("not logged in as volunteer")
+        return current_user
+
+    @staticmethod
     def dep_no_service_assigned(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
         record = Autherize.db.get_elder_record_by_email(current_user)
         if record.status != ElderStatus.not_assigned:
@@ -69,4 +76,31 @@ class Autherize:
         if record.status != ElderStatus.searching_a_volunteer:
             raise Autherize.auth_exception("already assigned or not requested for searching")
         volunteers = Autherize.db.get_unassigned_volunteers()
-        return (current_user, volunteers)
+        return (current_user, record, volunteers)
+    
+    @staticmethod
+    def dep_update_record(record_form: Annotated[dict, Depends(get_record_form)], current_user: Annotated[UserBase, Depends(dep_only_volunteer)]):
+        record = Autherize.db.get_elder_record_by_email(current_user)
+        volunteer = Autherize.db.get_user_by_email(current_user.email)
+
+        if record is None or record.status != ElderStatus.assigned:
+            raise Autherize.auth_exception("access denied")
+
+        if record.last_check_in is not None:
+            time_diff = datetime.now() - record.last_check_in
+            if time_diff < Autherize.TIME_GAP:
+                raise Autherize.auth_exception(f"Time period is not reached. remaining: {Autherize.TIME_GAP - time_diff}")
+
+        return (record_form, record, volunteer)
+
+    @staticmethod
+    def dep_elder_volunteer_linked(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
+        record = Autherize.db.get_elder_record_by_email(current_user)
+        if record is None or record.status != ElderStatus.assigned:
+            raise Autherize.auth_exception(f"access denied")
+        if current_user.user_type == "elder":
+            partner = Autherize.db.get_user_by_email(record.volunteer_email)
+        else:
+            partner = Autherize.db.get_user_by_email(record.user_email)
+
+        return (Autherize.db.from_DBModel_to_responseModel(partner), record) 

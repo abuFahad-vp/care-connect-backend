@@ -34,13 +34,7 @@ class DB:
         stmt = select(UserModelDB).where(UserModelDB.email == email)
         result = self.session.execute(stmt).scalars().first()
         return result
-    
-    # def update_elder_record_status(self, user: UserBase):
-    #     stmt = select(ElderRecord).where(ElderRecord.user_email == user.email)
-    #     elder_record = self.session.execute(stmt).scalars().first()
 
-    #     if elder_record:
-    
     def create_empty_elder_record(self, user: UserBase):
         new_record = ElderRecord(
             user_email=user.email,
@@ -68,7 +62,8 @@ class DB:
             country_code=user.country_code,
             contact_number=user.contact_number,
             bio=user.bio,
-            volunteer_credits=0,
+            profile_image=user.profile_image,
+            volunteer_credits=user.volunteer_credits,
             location=user.location
         )
 
@@ -82,7 +77,9 @@ class DB:
             country_code=user.country_code,
             contact_number=user.contact_number,
             bio=user.bio,
+            profile_image=user.profile_image,
             location=user.location,
+            volunteer_credits=user.volunteer_credits
         )
 
     def add_user(self, user: UserBase):

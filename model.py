@@ -39,6 +39,15 @@ class UserBase(BaseModel):
         description="User's biography",
         examples=["A brief description about the user"]
     )
+    volunteer_credits: int = Field(
+        ...,
+        description="Credits of volunteers"
+    )
+    profile_image: str = Field(
+        ...,
+        min_length=3,
+        description="Profile image as Base64 encoded string"
+    )
 
 class UserCreate(UserBase):
     password: str = Field(
@@ -60,6 +69,23 @@ class UserCreate(UserBase):
             raise ValueError('Passwords do not match')
         return v
 
+async def get_record_form(
+    blood_pressure: Annotated[str, Form()] = None,
+    heart_rate: Annotated[str, Form()] = None,
+    blood_sugar: Annotated[str, Form()] = None,
+    oxygen_saturation: Annotated[str, Form()] = None,
+    weight: Annotated[float, Form()] = None,
+    height: Annotated[float, Form()] = None
+):
+    return {
+        "blood_pressure": blood_pressure,
+        "heart_rate": heart_rate,
+        "blood_sugar": blood_sugar,
+        "oxygen_saturation": oxygen_saturation,
+        "weight": weight,
+        "height": height
+    }
+
 async def get_user_data(
     user_type: Annotated[Literal["volunteer", "elder"], Form()],
     full_name: Annotated[str, Form()],
@@ -71,7 +97,8 @@ async def get_user_data(
     contact_number: Annotated[str, Form()],
     location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
-    profile_image: Annotated[UploadFile, File()]
+    profile_image: Annotated[UploadFile, File()],
+    volunteer_credits: Annotated[int, File()] = None,
 ):
     return {
         "user_type": user_type,
@@ -84,5 +111,6 @@ async def get_user_data(
         "contact_number": contact_number,
         "bio": bio,
         "location": location,
-        "profile_image": profile_image
+        "profile_image": profile_image,
+        "volunteer_credits": volunteer_credits
     }

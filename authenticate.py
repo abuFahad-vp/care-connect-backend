@@ -1,6 +1,7 @@
 from fastapi import UploadFile
 from db_op import DB
 import bcrypt
+import base64
 
 class Authent:
     def hash_password(password):
@@ -21,17 +22,14 @@ class Authent:
             return False
         return user
     
-    async def authenticate_and_write_file(file: UploadFile, size, filename, filetype: list = None):
+    async def authenticate_file(file: UploadFile, size, filetype: list = None) -> str:
         if file.size < 1 or file.size > size:
             raise Exception(f"file size have to atleast 1 KB to utmost {size / 1024}KB")
 
-        file_location = f"uploads/{filename}"
         if filetype is not None:
             ext = file.content_type.split('/')[1]
             if ext not in filetype:
                 raise Exception("invalid file type")
-            file_location = f"{file_location}.{ext}"
-        
         file_bytes = await file.read()
-        with open(file_location, "wb") as buffer:
-            buffer.write(file_bytes)
+        encode_image = base64.b64encode(file_bytes).decode("utf-8")
+        return encode_image
