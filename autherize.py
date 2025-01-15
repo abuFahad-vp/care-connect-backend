@@ -1,12 +1,12 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from typing import Optional, Annotated, Literal
+from typing import Optional, Annotated
 from datetime import timedelta, datetime, timezone
 from jwt.exceptions import InvalidTokenError
 import jwt
 from fastapi.security import OAuth2PasswordBearer
 from db_op import DB
-from model import UserBase, RequestBase
+from model import UserBase, ElderStatus
 
 class Autherize:
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -55,3 +55,18 @@ class Autherize:
         if current_user.user_type != "elder":
             raise Autherize.auth_exception("not logged in as elder")
         return current_user
+
+    @staticmethod
+    def dep_no_service_assigned(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
+        record = Autherize.db.get_elder_record_by_email(current_user)
+        if record.status != ElderStatus.not_assigned:
+            raise Autherize.auth_exception("already assigned or already requested")
+        return record
+
+    @staticmethod
+    def dep_searching_volunteer(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
+        record = Autherize.db.get_elder_record_by_email(current_user)
+        if record.status != ElderStatus.searching_a_volunteer:
+            raise Autherize.auth_exception("already assigned or not requested for searching")
+        volunteers = Autherize.db.get_unassigned_volunteers()
+        return (current_user, volunteers)

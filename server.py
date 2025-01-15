@@ -1,14 +1,18 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile 
 from fastapi.security import OAuth2PasswordRequestForm
-from typing import Annotated
+from typing import Annotated, List, Tuple
 from datetime import timedelta
-from model import get_user_data, UserCreate, UserBase, RequestBase
+from model import get_user_data, UserCreate, UserBase, ElderStatus
 from fastapi.responses import JSONResponse
 from autherize import Autherize
 from authenticate import Authent
 from db_op import DB
+from db_init import ElderRecord, UserModelDB
+from util import Util
+import sys
 import os
 
+# location in signup form
 app = FastAPI()
 db = DB()
 Autherize.db = db
@@ -35,9 +39,12 @@ async def register(
             dob=user_create.dob,
             country_code=user_create.country_code,
             contact_number=user_create.contact_number,
+            location=user_create.location,
             bio=user_create.bio,
         )
         db.add_user(new_user)
+        if new_user.user_type == "elder":
+            db.create_empty_elder_record(new_user)
         return new_user
 
     except Exception as e:
@@ -46,7 +53,6 @@ async def register(
             status_code=422,
             content={"detail": str(e)}
         )
-
 
 @app.post("/token")
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
@@ -74,14 +80,28 @@ async def elder_only(current_user: Annotated[UserBase, Depends(Autherize.dep_onl
     return current_user
 
 @app.post("/new_serive_request")
-async def new_service_request(request_base: Annotated[RequestBase, Depends(RequestBase)], current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
+async def new_service_request(current_record: Annotated[ElderRecord, Depends(Autherize.dep_no_service_assigned)]):
+    current_record.status = ElderStatus.searching_a_volunteer
+    db.session.commit()
+    return {"message": "updated"}
+
+@app.get("/find_volunteer")
+async def find_volunteer(result: Annotated[Tuple[UserBase, List[UserModelDB]], Depends(Autherize.dep_searching_volunteer)]):
     try:
-        Authent.authenticate_request_form(request_base)
-        if request_base.documents is not None:
-            for doc in request_base.documents:
-                await Authent.authenticate_and_write_file(doc, 1024 * 1024, doc.filename)
-        print(request_base)
-        return {"working": "fine"}
+        current_user, volunteers = result
+        lat1, lon1 = current_user.location.split(",")
+        lat1, lon1 = (float(lat1), float(lon1))
+        min_dist = float(sys.maxsize)
+        potential_volunteer = volunteers[0]
+        for volunteer in volunteers:
+            lat2, lon2 = volunteer.location.split(",")
+            lat2, lon2 = (float(lat2), float(lon2))
+            curr_dist = Util.calculate_distance(lat1, lon1, lat2, lon2)
+            if min_dist > curr_dist:
+                potential_volunteer = volunteer
+                min_dist = curr_dist
+        return {"volunteer": potential_volunteer.email}
+
     except Exception as e:
         db.session.rollback()
         return JSONResponse(

@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column, Integer, String, Date, Text 
+from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy import Column, Integer, String, Date, Text, ForeignKey, Float, DateTime 
 
 engine = create_engine('sqlite:///amanah.db', echo=True, connect_args={"check_same_thread": False})
 Base = declarative_base()
@@ -16,7 +16,26 @@ class UserModelDB(Base):
     dob = Column(Date(), nullable=False)
     country_code = Column(String(5), nullable=False)
     contact_number = Column(String(20), nullable=False)
+    location = Column(String(100), nullable=False)
     bio = Column(Text(), nullable=False)
     volunteer_credits = Column(Integer, nullable=True)
+
+class ElderRecord(Base):
+    __tablename__ = "elder_records"
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String(255), ForeignKey("users.email"), nullable=False, unique=True)  # Links to the elder's user record
+    volunteer_email = Column(String(255), ForeignKey("users.email"), nullable=True, unique=True)  # Links to the assigned volunteer
+    blood_pressure = Column(String(20), nullable=True)  # Example: "120/80"
+    heart_rate = Column(Integer, nullable=True)  # Heart rate in beats per minute
+    blood_sugar = Column(Float, nullable=True)  # Blood sugar level in mg/dL
+    oxygen_saturation = Column(Float, nullable=True)  # Oxygen saturation as a percentage
+    weight = Column(Float, nullable=True)  # Weight in kilograms
+    height = Column(Float, nullable=True)  # Height in meters
+    last_check_in = Column(DateTime(), nullable=True)  # Tracks the last check-in time
+    status = Column(String(30), nullable=False) # current status of service
+
+    # Relationships
+    elder = relationship("UserModelDB", foreign_keys=[user_email], backref="elder_record")  # Elder relationship
+    volunteer = relationship("UserModelDB", foreign_keys=[volunteer_email])  # Assigned volunteer relationship
 
 Base.metadata.create_all(engine)

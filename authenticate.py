@@ -1,8 +1,6 @@
-from fastapi import HTTPException, Depends, status, UploadFile
+from fastapi import UploadFile
 from db_op import DB
 import bcrypt
-from model import RequestBase
-import re
 
 class Authent:
     def hash_password(password):
@@ -10,14 +8,6 @@ class Authent:
         gen_salt = bcrypt.gensalt()
         return bcrypt.hashpw(pwd_bytes, gen_salt)
 
-    @staticmethod
-    def auth_exception(details):
-        return HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            details=details,
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
     def verify_password(plain_password, hashed_password):
         pwd_bytes = plain_password.encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
@@ -45,16 +35,3 @@ class Authent:
         file_bytes = await file.read()
         with open(file_location, "wb") as buffer:
             buffer.write(file_bytes)
-
-    async def authenticate_request_form(request_form: RequestBase):
-        google_maps_url_pattern = (
-            r"^(https:\/\/)?(www\.)?(google\.(com|[a-z]{2})\/maps|maps\.google\.(com|[a-z]{2})|maps\.app\.goo\.gl)"
-        )
-        if not re.match(google_maps_url_pattern, request_form.location):
-            raise ValueError(
-                "The location must be a valid Google Maps URL (e.g., https://google.com/maps, https://maps.google.com, or https://maps.app.goo.gl)."
-            )
-
-        time_period_from = request_form.time_period_from
-        if time_period_from and request_form.time_period_to <= time_period_from:
-            raise ValueError("Task ending time must be after the starting time.")

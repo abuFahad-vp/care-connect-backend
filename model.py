@@ -1,44 +1,14 @@
 from typing import Annotated, Literal, List, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from datetime import date, time
+from datetime import date
 from fastapi import UploadFile, Form, File
 
-class RequestBase(BaseModel):
-    description: str = Field(
-        ..., 
-        min_length=2, 
-        max_length=1000, 
-        description="Description about the service"
-    )
-    documents: Optional[List[UploadFile]] = None
-    location: str = Field(
-        ..., 
-        description="Google Maps URL for the location of the elder"
-    )
-    time_period_from: time = Field(
-        ..., 
-        description="Task starting time"
-    )
-    time_period_to: time = Field(
-        ..., 
-        description="Task ending time"
-    )
-    country_code: str = Field(
-        ..., 
-        pattern=r"^\+[0-9]{1,4}$", 
-        description="Country code with + prefix", 
-        examples=["+1", "+44", "+91"]
-    )
-    contact_number: str = Field(
-        ..., 
-        pattern=r"^[0-9]{6,15}$", 
-        description="Contact number without country code", 
-        examples=["1234567890"]
-    )
+class ElderStatus:
+    not_assigned: str = "not_assigned"
+    searching_a_volunteer: str = "searching_a_volunteer"
+    assigned: str = "assigned"
 
 class UserBase(BaseModel):
-    """Base model for user data validation"""
-
     user_type: Literal["volunteer", "elder"]
     full_name: str = Field( ..., min_length=2, max_length=100, description="User's full name",)
     email: EmailStr = Field( ..., description="User's email address",)
@@ -56,6 +26,12 @@ class UserBase(BaseModel):
         description="Contact number without country code",
         examples=["1234567890"]
     )
+    location: str = Field(
+        ...,
+        pattern=r"^[-+]?\d{1,3}\.\d+,\s?[-+]?\d{1,3}\.\d+$",
+        description="Location coords",
+        examples=["10.2323,75.12323"],
+    )
     bio: str = Field(
         ...,
         min_length=2,
@@ -65,7 +41,6 @@ class UserBase(BaseModel):
     )
 
 class UserCreate(UserBase):
-    """Model for user creation and validation"""
     password: str = Field(
         ...,
         min_length=8,
@@ -94,6 +69,7 @@ async def get_user_data(
     dob: Annotated[date, Form()],
     country_code: Annotated[str, Form()],
     contact_number: Annotated[str, Form()],
+    location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
     profile_image: Annotated[UploadFile, File()]
 ):
@@ -107,12 +83,6 @@ async def get_user_data(
         "country_code": country_code,
         "contact_number": contact_number,
         "bio": bio,
+        "location": location,
         "profile_image": profile_image
     }
-
-class User(BaseModel):
-    username: str
-    email: str | None = None
-
-class UserInDB(User):
-    hashed_password: bytes
