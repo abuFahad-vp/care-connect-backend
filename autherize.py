@@ -7,6 +7,7 @@ import jwt
 from fastapi.security import OAuth2PasswordBearer
 from db_op import DB
 from model import UserBase, ElderStatus, get_record_form
+from authenticate import Authent
 
 class Autherize:
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -65,14 +66,14 @@ class Autherize:
 
     @staticmethod
     def dep_no_service_assigned(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
-        record = Autherize.db.get_elder_record_by_email(current_user)
+        record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         if record.status != ElderStatus.not_assigned:
             raise Autherize.auth_exception("already assigned or already requested")
         return record
 
     @staticmethod
     def dep_searching_volunteer(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
-        record = Autherize.db.get_elder_record_by_email(current_user)
+        record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         if record.status != ElderStatus.searching_a_volunteer:
             raise Autherize.auth_exception("already assigned or not requested for searching")
         volunteers = Autherize.db.get_unassigned_volunteers()
@@ -80,7 +81,7 @@ class Autherize:
     
     @staticmethod
     def dep_update_record(record_form: Annotated[dict, Depends(get_record_form)], current_user: Annotated[UserBase, Depends(dep_only_volunteer)]):
-        record = Autherize.db.get_elder_record_by_email(current_user)
+        record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         volunteer = Autherize.db.get_user_by_email(current_user.email)
 
         if record is None or record.status != ElderStatus.assigned:
@@ -95,7 +96,7 @@ class Autherize:
 
     @staticmethod
     def dep_elder_volunteer_linked(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
-        record = Autherize.db.get_elder_record_by_email(current_user)
+        record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         if record is None or record.status != ElderStatus.assigned:
             raise Autherize.auth_exception(f"access denied")
         if current_user.user_type == "elder":
@@ -104,3 +105,9 @@ class Autherize:
             partner = Autherize.db.get_user_by_email(record.user_email)
 
         return (Autherize.db.from_DBModel_to_responseModel(partner), record) 
+    
+    @staticmethod
+    def dep_only_admin(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
+        if current_user.email == "admin@admin.com" and Authent.verify_password("admin123", current_user.password):
+            return current_user
+        raise Autherize.auth_exception("invalid admin credentials")

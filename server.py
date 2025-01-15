@@ -118,7 +118,7 @@ async def find_assign_volunteer(request: Annotated[Tuple[UserBase, ElderRecord, 
 
 @app.get("/elder/record")
 async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
-    return db.get_elder_record_by_email(user)
+    return db.get_elder_record_by_email(user.email, user.user_type)
 
 @app.get("/user/know_your_partner")
 async def know_your_partner(request: Annotated[Tuple[UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
@@ -150,6 +150,31 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
             content={"detail": str(e)}
         )
 
-@app.get("user/me", response_model=UserBase)
+@app.get("/user/me", response_model=UserBase)
 async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
     return current_user
+
+@app.delete("/admin/delete/{email}")
+async def delete_user(email: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+    try:
+        user = db.get_user_by_email(email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.email == "admin@admin.com":
+            raise HTTPException(status_code=404, detail="do you hate your life")
+        record = db.get_elder_record_by_email(user.email, user.user_type)
+        if record is not None:
+            if user.user_type == "elder":
+                db.session.delete(record)
+            else:
+                record.status = ElderStatus.not_assigned
+                record.volunteer_email = None
+        db.session.delete(user)
+        db.session.commit()
+        return {"message": f"User with email {email} deleted successfully"}
+    except Exception as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)}
+        )

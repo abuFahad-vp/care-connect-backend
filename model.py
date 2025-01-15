@@ -98,7 +98,7 @@ async def get_user_data(
     location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
     profile_image: Annotated[UploadFile, File()],
-    volunteer_credits: Annotated[int, File()] = None,
+    volunteer_credits: Annotated[int, File()] = 0,
 ):
     return {
         "user_type": user_type,

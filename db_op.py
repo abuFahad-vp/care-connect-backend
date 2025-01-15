@@ -3,12 +3,29 @@ from model import UserBase, ElderStatus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
+from datetime import date
 
 class DB:
     def __init__(self):
         self.engine = create_engine('sqlite:///amanah.db', echo=True, connect_args={"check_same_thread": False})
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
+        admin = UserModelDB(
+            user_type="volunteer",
+            full_name="Admin",
+            email="admin@admin.com",
+            password="$2b$12$HmFTxSN0Njh3a1kpMFirtOPJ6qxTAUBqzIlPz9B28fddbRnPdo96q", # admin123
+            dob=date(1000,10,10),
+            country_code="+91",
+            contact_number="123456789",
+            bio="admin",
+            profile_image="no profile",
+            volunteer_credits=0,
+            location="0.0,0.0",
+        )
+        if self.session.query(UserModelDB).filter(UserModelDB.email == "admin@admin.com").first() is None:
+            self.session.add(admin)
+            self.session.commit()
 
     def get_unassigned_volunteers(self):
         stmt = select(UserModelDB).join(ElderRecord, UserModelDB.email == ElderRecord.volunteer_email, isouter=True).filter(
@@ -19,11 +36,11 @@ class DB:
         result = self.session.execute(stmt).scalars().all()
         return result
  
-    def get_elder_record_by_email(self, user: UserBase):
-        if user.user_type == "elder":
-            stmt = select(ElderRecord).where(ElderRecord.user_email == user.email)
-        elif user.user_type == "volunteer":
-            stmt = select(ElderRecord).where(ElderRecord.volunteer_email == user.email)
+    def get_elder_record_by_email(self, email: str, user_type: str):
+        if user_type == "elder":
+            stmt = select(ElderRecord).where(ElderRecord.user_email == email)
+        elif user_type == "volunteer":
+            stmt = select(ElderRecord).where(ElderRecord.volunteer_email == email)
         else:
             raise ValueError("Invalid user type. Must be 'elder' or 'volunteer'.")
 
