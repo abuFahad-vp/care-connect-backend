@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Date, ForeignKey, Float, DateTime 
+from sqlalchemy import Column, Integer, String, Date, ForeignKey, Float, DateTime, Text
+from datetime import datetime
 
 engine = create_engine('sqlite:///amanah.db', echo=True, connect_args={"check_same_thread": False})
 Base = declarative_base()
@@ -26,17 +27,29 @@ class ElderRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String(255), ForeignKey("users.email"), nullable=False, unique=True)  # Links to the elder's user record
     volunteer_email = Column(String(255), ForeignKey("users.email"), nullable=True, unique=True)  # Links to the assigned volunteer
-    blood_pressure = Column(String, nullable=True)  # Example: "120/80"
-    heart_rate = Column(String, nullable=True)  # Heart rate in beats per minute
-    blood_sugar = Column(String, nullable=True)  # Blood sugar level in mg/dL
-    oxygen_saturation = Column(String, nullable=True)  # Oxygen saturation as a percentage
-    weight = Column(Float, nullable=True)  # Weight in kilograms
-    height = Column(Float, nullable=True)  # Height in meters
-    last_check_in = Column(DateTime(), nullable=True)  # Tracks the last check-in time
-    status = Column(String(30), nullable=False) # current status of service
+    blood_pressure = Column(String, nullable=True)
+    heart_rate = Column(String, nullable=True)
+    blood_sugar = Column(String, nullable=True)
+    oxygen_saturation = Column(String, nullable=True)
+    weight = Column(Float, nullable=True)
+    height = Column(Float, nullable=True)
+    last_check_in = Column(DateTime(), nullable=True)
+    status = Column(String(30), nullable=False)
 
-    # Relationships
-    elder = relationship("UserModelDB", foreign_keys=[user_email], backref="elder_record")  # Elder relationship
-    volunteer = relationship("UserModelDB", foreign_keys=[volunteer_email])  # Assigned volunteer relationship
+    elder = relationship("UserModelDB", foreign_keys=[user_email], backref="elder_record")
+    volunteer = relationship("UserModelDB", foreign_keys=[volunteer_email])
+
+class Feedback(Base):
+    __tablename__ = 'feedback'
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_email = Column(String(255), ForeignKey('users.email'), nullable=False)
+    reported_email = Column(String(255), ForeignKey('users.email'), nullable=False)
+    feedback = Column(Text, nullable=False)
+    feedback_type = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(), nullable=False)
+    status = Column(String, nullable=True)
+
+    volunteer = relationship("UserModelDB", foreign_keys=[reporter_email])
+    user = relationship("UserModelDB", foreign_keys=[reported_email])
 
 Base.metadata.create_all(engine)

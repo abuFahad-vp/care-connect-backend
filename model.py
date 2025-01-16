@@ -1,7 +1,8 @@
-from typing import Annotated, Literal, List, Optional
+from typing import Annotated, Literal, List, Optional, Tuple
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from datetime import date
-from fastapi import UploadFile, Form, File
+from datetime import date, datetime
+from fastapi import UploadFile, Form, File, HTTPException
+import json
 
 class ElderStatus:
     not_assigned: str = "not_assigned"
@@ -114,3 +115,68 @@ async def get_user_data(
         "profile_image": profile_image,
         "volunteer_credits": volunteer_credits
     }
+def str_userbase(current_user: UserBase):
+    return {
+        "user_type": str(current_user.user_type),
+        "full_name": str(current_user.full_name),
+        "email": str(current_user.email),
+        "dob": str(current_user.dob),
+        "country_code": str(current_user.country_code),
+        "contact_number": str(current_user.contact_number),
+        "bio": str(current_user.bio),
+        "location": str(current_user.location),
+        "profile_image": str(current_user.profile_image),
+        "volunteer_credits": str(current_user.volunteer_credits)
+    }
+
+async def get_feedback(
+    feedback: Annotated[str, Form()],
+    feedback_type: Annotated[str, Form()],
+    status: Annotated[str, Form()] = "not_reviewed"
+):
+    return {
+        "feedback": feedback,
+        "status": status,
+        "feedback_type": feedback_type
+    }
+
+class ServiceRequestForm(BaseModel):
+    description: str = Field(..., description="Description about the service required")
+    documents: List[UploadFile] = Field(
+        default_factory=list,
+        description="documents attached if any")
+    locations: List[str] = Field(
+        ...,
+        description="Locations and Location descriptions"
+    )
+    time_period_from: datetime = Field(..., description="start time for the service")
+    time_period_to: datetime = Field(..., description="end time for the service")
+    country_code: str = Field(
+        ..., 
+        pattern=r"^\+[0-9]{1,4}$",
+        description="Country code with + prefix",
+        examples=["+1", "+44", "+91"]
+    )
+    contact_number: str = Field(
+        ..., 
+        pattern=r"^[0-9]{6,15}$",
+        description="Contact number without country code",
+        examples=["1234567890"]
+    )
+
+    def validate_locations(self):
+        if not self.locations or len(self.locations) < 1:
+            raise ValueError("Must specify the locations")
+        for location in self.locations:
+            if "|" not in location:
+                raise ValueError("Each location must be in the format 'URL|Description'")
+
+    def document_validation(self):
+        for file in self.documents:
+            if file.size > 1024 * 1024:
+                raise ValueError('file size must be less than 1 MB')
+    
+    def check_valid_time(self):
+        if self.time_period_to < self.time_period_from:
+                raise ValueError('Invalid time period')
+    

@@ -16,7 +16,7 @@ class Autherize:
     ACCESS_TOKEN_EXPIRE_MINUTES = 30
     TIME_GAP = timedelta(seconds=10)
     db: DB = None
-    
+
     @staticmethod
     def auth_exception(detail):
         return HTTPException(
@@ -76,8 +76,7 @@ class Autherize:
         record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         if record.status != ElderStatus.searching_a_volunteer:
             raise Autherize.auth_exception("already assigned or not requested for searching")
-        volunteers = Autherize.db.get_unassigned_volunteers()
-        return (current_user, record, volunteers)
+        return (current_user, record)
     
     @staticmethod
     def dep_update_record(record_form: Annotated[dict, Depends(get_record_form)], current_user: Annotated[UserBase, Depends(dep_only_volunteer)]):
@@ -104,7 +103,7 @@ class Autherize:
         else:
             partner = Autherize.db.get_user_by_email(record.user_email)
 
-        return (Autherize.db.from_DBModel_to_responseModel(partner), record) 
+        return (current_user, Autherize.db.from_DBModel_to_responseModel(partner), record) 
     
     @staticmethod
     def dep_only_admin(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
