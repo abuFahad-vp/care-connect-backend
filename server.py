@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, WebSocket
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, WebSocket, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
-from typing import Annotated, List, Tuple, Dict
+from typing import Annotated, Tuple, Dict
 from datetime import timedelta
 from model import *
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from autherize import Autherize
 from authenticate import Authent
 from db_op import DB
@@ -16,15 +16,14 @@ import asyncio
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
-# location in signup form
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # This allows any origin, including null
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 db = DB()
 Autherize.db = db
@@ -124,8 +123,6 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "message": service["message"]
                             }
                         ))
-                        if service["status"] != ServiceStatus.ACCEPTED:
-                            del active_services[service_id]
                 else:
                     await websocket.send_text(json.dumps({"type":"service_not_found"}))
 
@@ -181,20 +178,36 @@ async def new_volunteer_request(current_record: Annotated[ElderRecord, Depends(A
     db.session.commit()
     return {"message": "updated"}
 
+async def monitor_service(service_id: str):
+    while True:
+        service = active_services.get(service_id)
+        if service is None:
+            break
+
+        if service["status"] != "accepted":
+            del active_services[service_id]
+            for filename in os.listdir("uploads"):
+                    if filename.startswith(service_id) and os.path.isfile(f"uploads/{filename}"):
+                        os.remove(f"uploads/{filename}")
+                        break
+        await asyncio.sleep(1)
+
 @app.post("/elder/new_service_request/{timeout}")
 async def new_service_request(
     timeout: float,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
-    current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
+    current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)],
+    background_tasks: BackgroundTasks
+    ):
     try:
         service_form.check_valid_time()
-        service_form.document_validation()
         service_form.validate_locations()
         service_id = str(uuid.uuid4())
 
         service_form_text = {
             "service_id": service_id,
             "description": service_form.description,
+            "has_documents": service_form.has_documents,
             "locations": service_form.locations,
             "time_period_from": str(service_form.time_period_from),
             "time_period_to": str(service_form.time_period_to),
@@ -202,11 +215,14 @@ async def new_service_request(
             "contact_number": service_form.contact_number,
         }
 
-        # TODO: need to handle documents uploads
-        if service_form.documents and len(service_form.documents) > 0:
-            service_form_text["has_documents"] = True
-        else:
-            service_form_text["has_documents"] = False
+        if service_form.documents is not None and len(service_form.documents) > 0 and service_form.has_documents:
+            file_names = []
+            for file in service_form.documents:
+                file_names.append(file.filename)
+                file_bytes = await file.read()
+                with open(f"uploads/{service_id}_{file.filename}", "wb") as buffer:
+                    buffer.write(file_bytes)
+            service_form_text["documents"] = file_names
 
         active_services[service_id] = {
             "elder_email": current_user.email,
@@ -230,7 +246,6 @@ async def new_service_request(
                 websocket = connected_clients[volunteer.email]
                 await websocket.send_text(json.dumps(request))
 
-        # new_volunteer_request_queue.task_done()
         try:
             while True:
                 message = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
@@ -248,6 +263,7 @@ async def new_service_request(
                         ))
                     active_services[service_id]["volunteer_email"] = volunteer_profile.email
                     active_services[service_id]["status"] = ServiceStatus.ACCEPTED
+                    background_tasks.add_task(monitor_service, service_id)
                 return {"status": "accepted", "service_id": service_id}
         except asyncio.TimeoutError:
             del active_services[service_id]
@@ -331,7 +347,6 @@ async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
     return db.get_elder_record_by_email(user.email, user.user_type)
 
 # volunteer endpoints
-
 @app.post("/volunteer/update_record")
 async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
     try:
@@ -346,6 +361,33 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
         volunteer.volunteer_credits += 50
         db.session.commit()
         return {"message":"updated"}
+    except Exception as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)}
+        )
+
+@app.post("/volunteer/get_documents/{service_id}/{document}")
+async def update_record(service_id: str, document: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_volunteer)]):
+    try: 
+        if service_id not in active_services:
+            raise ValueError("Invalid service_id or there's no service running")
+        service = active_services[service_id]
+        if service["volunteer_email"] != current_user.email:
+            raise Exception("access denied")
+        if active_services[service_id]["status"] != ServiceStatus.ACCEPTED:
+            raise ValueError("Service is finished")
+        filename = f"{service_id}_{document}"
+        file = f"uploads/{filename}"
+
+        if not os.path.isfile(file):
+            raise ValueError("file not found")
+        
+        return FileResponse(file, status_code=200, media_type="application/octet-stream",filename=filename)
+        
+        
+
     except Exception as e:
         db.session.rollback()
         return JSONResponse(

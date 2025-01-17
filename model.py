@@ -76,6 +76,7 @@ class ServiceRequestForm(BaseModel):
     documents: Optional[List[UploadFile]] = Field(
         default=None,
         description="documents attached if any")
+    has_documents: bool = Field(..., description="Is there any documents attached")
     locations: List[str] = Field(
         ...,
         description="Locations and Location descriptions"
@@ -101,12 +102,6 @@ class ServiceRequestForm(BaseModel):
         for location in self.locations:
             if "|" not in location:
                 raise ValueError("Each location must be in the format 'URL|Description'")
-
-    def document_validation(self):
-        if self.documents:
-            for file in self.documents:
-                if file.size > 1024 * 1024:
-                    raise ValueError('file size must be less than 1 MB')
     
     def check_valid_time(self):
         if self.time_period_to < self.time_period_from:
