@@ -2,6 +2,7 @@ from typing import Annotated, Literal, List, Optional, Tuple
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import date, datetime
 from fastapi import UploadFile, Form, File, HTTPException
+from enum import Enum
 import json
 
 class ElderStatus:
@@ -69,6 +70,54 @@ class UserCreate(UserBase):
         if 'password' in values.data and v != values.data['password']:
             raise ValueError('Passwords do not match')
         return v
+
+class ServiceRequestForm(BaseModel):
+    description: str = Field(..., description="Description about the service required")
+    documents: Optional[List[UploadFile]] = Field(
+        default=None,
+        description="documents attached if any")
+    locations: List[str] = Field(
+        ...,
+        description="Locations and Location descriptions"
+    )
+    time_period_from: datetime = Field(..., description="start time for the service")
+    time_period_to: datetime = Field(..., description="end time for the service")
+    country_code: str = Field(
+        ..., 
+        pattern=r"^\+[0-9]{1,4}$",
+        description="Country code with + prefix",
+        examples=["+1", "+44", "+91"]
+    )
+    contact_number: str = Field(
+        ..., 
+        pattern=r"^[0-9]{6,15}$",
+        description="Contact number without country code",
+        examples=["1234567890"]
+    )
+
+    def validate_locations(self):
+        if not self.locations or len(self.locations) < 1:
+            raise ValueError("Must specify the locations")
+        for location in self.locations:
+            if "|" not in location:
+                raise ValueError("Each location must be in the format 'URL|Description'")
+
+    def document_validation(self):
+        if self.documents:
+            for file in self.documents:
+                if file.size > 1024 * 1024:
+                    raise ValueError('file size must be less than 1 MB')
+    
+    def check_valid_time(self):
+        if self.time_period_to < self.time_period_from:
+                raise ValueError('Invalid time period')
+    
+
+class ServiceStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    COMPLETED = "completed"
+    ABORTED = "aborted"
 
 async def get_record_form(
     blood_pressure: Annotated[str, Form()] = None,
@@ -139,44 +188,3 @@ async def get_feedback(
         "status": status,
         "feedback_type": feedback_type
     }
-
-class ServiceRequestForm(BaseModel):
-    description: str = Field(..., description="Description about the service required")
-    documents: List[UploadFile] = Field(
-        default_factory=list,
-        description="documents attached if any")
-    locations: List[str] = Field(
-        ...,
-        description="Locations and Location descriptions"
-    )
-    time_period_from: datetime = Field(..., description="start time for the service")
-    time_period_to: datetime = Field(..., description="end time for the service")
-    country_code: str = Field(
-        ..., 
-        pattern=r"^\+[0-9]{1,4}$",
-        description="Country code with + prefix",
-        examples=["+1", "+44", "+91"]
-    )
-    contact_number: str = Field(
-        ..., 
-        pattern=r"^[0-9]{6,15}$",
-        description="Contact number without country code",
-        examples=["1234567890"]
-    )
-
-    def validate_locations(self):
-        if not self.locations or len(self.locations) < 1:
-            raise ValueError("Must specify the locations")
-        for location in self.locations:
-            if "|" not in location:
-                raise ValueError("Each location must be in the format 'URL|Description'")
-
-    def document_validation(self):
-        for file in self.documents:
-            if file.size > 1024 * 1024:
-                raise ValueError('file size must be less than 1 MB')
-    
-    def check_valid_time(self):
-        if self.time_period_to < self.time_period_from:
-                raise ValueError('Invalid time period')
-    

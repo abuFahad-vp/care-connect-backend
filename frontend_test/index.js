@@ -1,4 +1,5 @@
 let sessionToken = null; // To store the session token
+let ws = null;
 
 // Function to handle login
 async function login(email, password) {
@@ -34,7 +35,7 @@ function connectToWebSocket() {
   }
 
   // Connect to the WebSocket server with session token as a query parameter
-  const ws = new WebSocket(`ws://127.0.0.1:8000/ws?token=${sessionToken}`);
+  ws = new WebSocket(`ws://127.0.0.1:8000/ws?token=${sessionToken}`);
 
   ws.onopen = () => {
     console.log("Connected to WebSocket server!");
@@ -44,13 +45,27 @@ function connectToWebSocket() {
     console.log(event)
     const message = JSON.parse(event.data);
     console.log("socket message", message)
-    if (message.type = "new_volunteer_request") {
+    if (message.type === "new_volunteer_request") {
       const requestId = message.user_profile.email;
       console.log(`New volunteer request received: ${requestId}`);
 
       let decision = await getVolunteerDecision();
-      decision = `new_volunteer_request:${decision ? "accept" : "reject"}` 
-      ws.send(decision);
+      decision = `new_volunteer_request:${decision ? "accept" : "reject"}:${message.user_profile.email}`
+      const jsonResponse = {
+        type: decision
+      }
+      ws.send(JSON.stringify(jsonResponse));
+      console.log(`Response sent for request ${requestId}: ${decision}`);
+    }
+    if (message.type === "new_service_request") {
+      const requestId = message.user_profile.email;
+      // let decision = await getVolunteerDecision();
+      // decision = `new_service_request:${decision ? "accept" : "reject"}:${message.user_profile.email}`
+      decision = `new_service_request:accept:${message.user_profile.email}`
+      const jsonResponse = {
+        type: decision
+      }
+      ws.send(JSON.stringify(jsonResponse));
       console.log(`Response sent for request ${requestId}: ${decision}`);
     }
   };
@@ -75,10 +90,7 @@ function getVolunteerDecision() {
 }
 
 // Main function to handle login and WebSocket connection
-async function main() {
-  const email = "v1@v.com"; // Replace with the user email
-  const password = "string123"; // Replace with the user password
-
+async function main(email, password) {
   const loggedIn = await login(email, password);
 
   if (loggedIn) {
@@ -87,6 +99,3 @@ async function main() {
     console.error("Login failed. Exiting...");
   }
 }
-
-// Run the main function
-main();

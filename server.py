@@ -1,8 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, WebSocket
 from fastapi.security import OAuth2PasswordRequestForm
-from typing import Annotated, List, Tuple
+from typing import Annotated, List, Tuple, Dict
 from datetime import timedelta
-from model import get_user_data, UserCreate, UserBase, ElderStatus, get_feedback, str_userbase, ServiceRequestForm
+from model import *
 from fastapi.responses import JSONResponse
 from autherize import Autherize
 from authenticate import Authent
@@ -13,12 +13,11 @@ from datetime import datetime, timedelta
 import os
 import json
 import asyncio
+import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
 # location in signup form
 app = FastAPI()
-
-new_volunteer_request_queue = asyncio.Queue()
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,7 +31,10 @@ Autherize.db = db
 
 os.makedirs("uploads", exist_ok=True)
 
-connected_clients = {}
+connected_clients: Dict[str, WebSocket] = {}
+new_volunteer_request_queue = asyncio.Queue()
+new_service_request_queue = asyncio.Queue()
+active_services: Dict[str, dict] = {}
 
 @app.post("/signup", response_model=UserBase)
 async def register(
@@ -84,6 +86,52 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+# websocket
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Token missing")
+    current_user = Autherize.dep_get_current_user(token)
+    await websocket.accept()
+    connected_clients[current_user.email] = websocket
+    try:
+        while True:
+            response = await websocket.receive_json()
+
+            if response["type"].startswith("new_volunteer_request"):
+                await new_volunteer_request_queue.put(response["type"])
+
+            if response["type"].startswith("new_service_request"):
+                await new_service_request_queue.put(f"{response["type"]}:{current_user.email}")
+
+            if response["type"] == "service_message":
+                service_id = response["service_id"]
+                if service_id in active_services:
+                    service = active_services[service_id]
+                    if service["status"] == ServiceStatus.ACCEPTED:
+                        service["status"] = response["status_update"]
+                        service["message"] = response["message"]
+                        if current_user.user_type == "volunteer":
+                            partner_email = service["elder_email"]
+                        else:
+                            partner_email = service["volunteer_email"]
+                        await connected_clients[partner_email].send_text(json.dumps(
+                            {
+                                "type": "service_message",
+                                "status_update": service["status"],
+                                "service_id": service_id,
+                                "message": service["message"]
+                            }
+                        ))
+                        if service["status"] != ServiceStatus.ACCEPTED:
+                            del active_services[service_id]
+                else:
+                    await websocket.send_text(json.dumps({"type":"service_not_found"}))
+
+    except Exception:
+        del connected_clients[current_user.email]
+
 # user endpoints
 @app.get("/user/know_your_partner")
 async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
@@ -118,6 +166,13 @@ async def feedback(
 async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
     return current_user
 
+@app.post("/user/unassign")
+async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
+    _, _, record = request
+    record.volunteer_email = None
+    record.status = ElderStatus.not_assigned
+    db.session.commit()
+    return {"message": "unassigned"}
 
 # elder endpoints
 @app.post("/elder/new_volunteer_request")
@@ -126,19 +181,81 @@ async def new_volunteer_request(current_record: Annotated[ElderRecord, Depends(A
     db.session.commit()
     return {"message": "updated"}
 
-@app.post("/elder/new_service_request")
+@app.post("/elder/new_service_request/{timeout}")
 async def new_service_request(
+    timeout: float,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
     current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
     try:
         service_form.check_valid_time()
         service_form.document_validation()
         service_form.validate_locations()
-        return {"message": "got it"}
+        service_id = str(uuid.uuid4())
+
+        service_form_text = {
+            "service_id": service_id,
+            "description": service_form.description,
+            "locations": service_form.locations,
+            "time_period_from": str(service_form.time_period_from),
+            "time_period_to": str(service_form.time_period_to),
+            "country_code": service_form.country_code,
+            "contact_number": service_form.contact_number,
+        }
+
+        # TODO: need to handle documents uploads
+        if service_form.documents and len(service_form.documents) > 0:
+            service_form_text["has_documents"] = True
+        else:
+            service_form_text["has_documents"] = False
+
+        active_services[service_id] = {
+            "elder_email": current_user.email,
+            "status": ServiceStatus.PENDING,
+            "created_at": datetime.now(),
+            "service_form": service_form_text
+        }
+
+        volunteers = db.session.query(UserModelDB).filter(
+            UserModelDB.user_type == "volunteer"
+        ).all()
+
+        request = {
+            "type": "new_service_request",
+            "service_id": service_id,
+            "user_profile": str_userbase(current_user),
+            "service_form": service_form_text
+        }
+        for volunteer in volunteers:
+            if volunteer.email in connected_clients:
+                websocket = connected_clients[volunteer.email]
+                await websocket.send_text(json.dumps(request))
+
+        # new_volunteer_request_queue.task_done()
+        try:
+            while True:
+                message = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
+                message = message.split(":")
+                
+                if message[1] == "accept" and message[2] == current_user.email:
+                    volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[3]))
+                    if current_user.email in connected_clients:
+                        await connected_clients[current_user.email].send_text(json.dumps(
+                            {
+                                "type": "volunteer_accepted",
+                                "service_id": service_id,
+                                "user_profile":str_userbase(volunteer_profile)
+                            }
+                        ))
+                    active_services[service_id]["volunteer_email"] = volunteer_profile.email
+                    active_services[service_id]["status"] = ServiceStatus.ACCEPTED
+                return {"status": "accepted", "service_id": service_id}
+        except asyncio.TimeoutError:
+            del active_services[service_id]
+            raise HTTPException(status_code=408, detail="No volunteer accepted the request")
+
     except Exception as e:
         db.session.rollback()
         return JSONResponse(status_code=422, content={"detail": str(e)})
-
 
 # this will keep searching until a volunteer is found or timeout
 @app.get("/elder/find_assign_volunteer/{timeout}")
@@ -180,14 +297,14 @@ async def find_assign_volunteer(
                 try:
                     # Send a request to the volunteer and wait for response
                     request = {
-                        "type": f"new_volunteer_request:{current_user.email}",
+                        "type": "new_volunteer_request",
                         "user_profile": str_userbase(current_user)
                     }
                     await websocket.send_text(json.dumps(request))
                     message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
                     new_volunteer_request_queue.task_done()
-
-                    if message.split(":")[1] == "accept":
+                    message = message.split(":")
+                    if message[1] == "accept" and message[2] == current_user.email:
                         record.volunteer_email = volunteer.email
                         record.status = ElderStatus.assigned
                         db.session.commit()
@@ -213,30 +330,7 @@ async def find_assign_volunteer(
 async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
     return db.get_elder_record_by_email(user.email, user.user_type)
 
-# websocket
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    token = websocket.query_params.get("token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Token missing")
-    current_user = Autherize.dep_get_current_user(token)
-    await websocket.accept()
-    connected_clients[current_user.email] = websocket
-    try:
-        while True:
-            response = await websocket.receive_text()
-            if response.startswith("new_volunteer_request"):
-                await new_volunteer_request_queue.put(response)
-    except Exception:
-        del connected_clients[current_user.email]
-@app.post("/user/unassign")
-async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
-    _, _, record = request
-    record.volunteer_email = None
-    record.status = ElderStatus.not_assigned
-    db.session.commit()
-    return {"message": "unassigned"}
-
+# volunteer endpoints
 
 @app.post("/volunteer/update_record")
 async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
@@ -259,6 +353,7 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
             content={"detail": str(e)}
         )
 
+# admin endpoints
 @app.get("/admin/records")
 async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
