@@ -163,6 +163,10 @@ async def feedback(
 async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
     return current_user
 
+@app.get("/user/me/type", response_model=UserBase)
+async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
+    return {"type": current_user.user_type}
+
 @app.post("/user/unassign")
 async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
     _, _, record = request
