@@ -15,7 +15,6 @@ class UserModelDB(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
     dob = Column(Date(), nullable=False)
-    country_code = Column(String(5), nullable=False)
     contact_number = Column(String(20), nullable=False)
     location = Column(String(100), nullable=False)
     bio = Column(String, nullable=False)
@@ -27,12 +26,12 @@ class ElderRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String(255), ForeignKey("users.email"), nullable=False, unique=True)  # Links to the elder's user record
     volunteer_email = Column(String(255), ForeignKey("users.email"), nullable=True, unique=True)  # Links to the assigned volunteer
-    blood_pressure = Column(String, nullable=True)
-    heart_rate = Column(String, nullable=True)
-    blood_sugar = Column(String, nullable=True)
-    oxygen_saturation = Column(String, nullable=True)
-    weight = Column(Float, nullable=True)
-    height = Column(Float, nullable=True)
+    data = Column(String, nullable=True)
+    # heart_rate = Column(String, nullable=True)
+    # blood_sugar = Column(String, nullable=True)
+    # oxygen_saturation = Column(String, nullable=True)
+    # weight = Column(Float, nullable=True)
+    # height = Column(Float, nullable=True)
     last_check_in = Column(DateTime(), nullable=True)
     status = Column(String(30), nullable=False)
 

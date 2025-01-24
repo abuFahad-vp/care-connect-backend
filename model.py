@@ -1,9 +1,8 @@
-from typing import Annotated, Literal, List, Optional, Tuple
+from typing import Annotated, Literal, List, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import date, datetime
-from fastapi import UploadFile, Form, File, HTTPException
+from fastapi import UploadFile, Form, File
 from enum import Enum
-import json
 
 class ElderStatus:
     not_assigned: str = "not_assigned"
@@ -16,16 +15,10 @@ class UserBase(BaseModel):
     email: EmailStr = Field( ..., description="User's email address",)
     password: str = Field( ..., description="Hashed password")
     dob: date = Field( ..., description="Date of birth in YYYY-MM-DD format", examples=["1990-01-01"])
-    country_code: str = Field(
-        ..., 
-        pattern=r"^\+[0-9]{1,4}$",
-        description="Country code with + prefix",
-        examples=["+1", "+44", "+91"]
-    )
     contact_number: str = Field(
         ..., 
-        pattern=r"^[0-9]{6,15}$",
-        description="Contact number without country code",
+        pattern=r"^\+?[0-9]{6,15}$",
+        description="Contact number",
         examples=["1234567890"]
     )
     location: str = Field(
@@ -83,16 +76,10 @@ class ServiceRequestForm(BaseModel):
     )
     time_period_from: datetime = Field(..., description="start time for the service")
     time_period_to: datetime = Field(..., description="end time for the service")
-    country_code: str = Field(
-        ..., 
-        pattern=r"^\+[0-9]{1,4}$",
-        description="Country code with + prefix",
-        examples=["+1", "+44", "+91"]
-    )
     contact_number: str = Field(
         ..., 
-        pattern=r"^[0-9]{6,15}$",
-        description="Contact number without country code",
+        pattern=r"^\+?[0-9]{6,15}$",
+        description="Contact number",
         examples=["1234567890"]
     )
 
@@ -115,20 +102,21 @@ class ServiceStatus(str, Enum):
     ABORTED = "aborted"
 
 async def get_record_form(
-    blood_pressure: Annotated[str, Form()] = None,
-    heart_rate: Annotated[str, Form()] = None,
-    blood_sugar: Annotated[str, Form()] = None,
-    oxygen_saturation: Annotated[str, Form()] = None,
-    weight: Annotated[float, Form()] = None,
-    height: Annotated[float, Form()] = None
+    data: Annotated[str, Form()] = None,
+    # heart_rate: Annotated[str, Form()] = None,
+    # blood_sugar: Annotated[str, Form()] = None,
+    # oxygen_saturation: Annotated[str, Form()] = None,
+    # weight: Annotated[float, Form()] = None,
+    # height: Annotated[float, Form()] = None
 ):
     return {
-        "blood_pressure": blood_pressure,
-        "heart_rate": heart_rate,
-        "blood_sugar": blood_sugar,
-        "oxygen_saturation": oxygen_saturation,
-        "weight": weight,
-        "height": height
+        # "blood_pressure": blood_pressure,
+        # "heart_rate": heart_rate,
+        # "blood_sugar": blood_sugar,
+        # "oxygen_saturation": oxygen_saturation,
+        # "weight": weight,
+        # "height": height
+        "data": data
     }
 
 async def get_user_data(
@@ -138,12 +126,10 @@ async def get_user_data(
     password: Annotated[str, Form()],
     confirm_password: Annotated[str, Form()],
     dob: Annotated[date, Form()],
-    country_code: Annotated[str, Form()],
     contact_number: Annotated[str, Form()],
     location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
     profile_image: Annotated[UploadFile, File()],
-    volunteer_credits: Annotated[int, File()] = 0,
 ):
     return {
         "user_type": user_type,
@@ -152,12 +138,10 @@ async def get_user_data(
         "password": password,
         "confirm_password": confirm_password,
         "dob": dob,
-        "country_code": country_code,
         "contact_number": contact_number,
         "bio": bio,
         "location": location,
         "profile_image": profile_image,
-        "volunteer_credits": volunteer_credits
     }
 def str_userbase(current_user: UserBase):
     return {
@@ -165,7 +149,6 @@ def str_userbase(current_user: UserBase):
         "full_name": str(current_user.full_name),
         "email": str(current_user.email),
         "dob": str(current_user.dob),
-        "country_code": str(current_user.country_code),
         "contact_number": str(current_user.contact_number),
         "bio": str(current_user.bio),
         "location": str(current_user.location),

@@ -15,6 +15,8 @@ import json
 import asyncio
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import IntegrityError
+
 
 app = FastAPI()
 
@@ -35,6 +37,10 @@ new_volunteer_request_queue = asyncio.Queue()
 new_service_request_queue = asyncio.Queue()
 active_services: Dict[str, dict] = {}
 
+@app.get("/ping")
+async def ping():
+    return {"message": "pinged"}
+
 @app.post("/signup", response_model=UserBase)
 async def register(
     user_data: Annotated[dict, Depends(get_user_data)]
@@ -43,6 +49,7 @@ async def register(
         profile_image: UploadFile = user_data["profile_image"] 
         profile_image = await Authent.authenticate_file(profile_image, 500 * 1024, ["jpg", "jpeg", "png"])
         user_data["profile_image"] = profile_image
+        user_data["volunteer_credits"] = 0
         user_create = UserCreate(**user_data)
 
         new_user = UserBase(
@@ -51,7 +58,6 @@ async def register(
             email=user_create.email,
             password=Authent.hash_password(user_create.password),
             dob=user_create.dob,
-            country_code=user_create.country_code,
             contact_number=user_create.contact_number,
             location=user_create.location,
             bio=user_create.bio,
@@ -62,7 +68,12 @@ async def register(
         if new_user.user_type == "elder":
             db.create_empty_elder_record(new_user)
         return new_user
-
+    except IntegrityError as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "User already exist"}
+        )
     except Exception as e:
         db.session.rollback()
         return JSONResponse(
@@ -79,11 +90,11 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=Autherize.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(days=Autherize.ACCESS_TOKEN_EXPIRE_DAY)
     access_token = Autherize.create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "data": user}
 
 # websocket
 @app.websocket("/ws")
@@ -97,7 +108,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         while True:
             response = await websocket.receive_json()
-
+            print("Websocket msg: ", response)
             if response["type"].startswith("new_volunteer_request"):
                 await new_volunteer_request_queue.put(response["type"])
 
@@ -215,7 +226,6 @@ async def new_service_request(
             "locations": service_form.locations,
             "time_period_from": str(service_form.time_period_from),
             "time_period_to": str(service_form.time_period_to),
-            "country_code": service_form.country_code,
             "contact_number": service_form.contact_number,
         }
 
@@ -243,8 +253,10 @@ async def new_service_request(
             "type": "new_service_request",
             "service_id": service_id,
             "user_profile": str_userbase(current_user),
-            "service_form": service_form_text
+            "service_form": service_form_text,
+            "timeout": str(datetime.now() + timedelta(seconds=timeout)),
         }
+
         for volunteer in volunteers:
             if volunteer.email in connected_clients:
                 websocket = connected_clients[volunteer.email]
@@ -255,8 +267,8 @@ async def new_service_request(
                 message = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
                 message = message.split(":")
                 
-                if message[1] == "accept" and message[2] == current_user.email:
-                    volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[3]))
+                if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
+                    volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[4]))
                     if current_user.email in connected_clients:
                         await connected_clients[current_user.email].send_text(json.dumps(
                             {
@@ -268,7 +280,8 @@ async def new_service_request(
                     active_services[service_id]["volunteer_email"] = volunteer_profile.email
                     active_services[service_id]["status"] = ServiceStatus.ACCEPTED
                     background_tasks.add_task(monitor_service, service_id)
-                return {"status": "accepted", "service_id": service_id}
+                    new_service_request_queue.task_done()
+                    return {"status": "accepted", "service_id": service_id}
         except asyncio.TimeoutError:
             del active_services[service_id]
             raise HTTPException(status_code=408, detail="No volunteer accepted the request")
@@ -318,7 +331,8 @@ async def find_assign_volunteer(
                     # Send a request to the volunteer and wait for response
                     request = {
                         "type": "new_volunteer_request",
-                        "user_profile": str_userbase(current_user)
+                        "user_profile": str_userbase(current_user),
+                        "timeout": str(datetime.now() + timedelta(seconds=timeout))
                     }
                     await websocket.send_text(json.dumps(request))
                     message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
@@ -355,12 +369,13 @@ async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
 async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
     try:
         record_form, record, volunteer = request
-        record.blood_pressure = record_form["blood_pressure"]
-        record.heart_rate = record_form["heart_rate"]
-        record.blood_sugar = record_form["blood_sugar"]
-        record.oxygen_saturation = record_form["oxygen_saturation"]
-        record.weight = record_form["weight"]
-        record.height = record_form["height"]
+        # record.blood_pressure = record_form["blood_pressure"]
+        # record.heart_rate = record_form["heart_rate"]
+        # record.blood_sugar = record_form["blood_sugar"]
+        # record.oxygen_saturation = record_form["oxygen_saturation"]
+        # record.weight = record_form["weight"]
+        # record.height = record_form["height"]
+        record.data = record_form["data"]
         record.last_check_in = datetime.now()
         volunteer.volunteer_credits += 50
         db.session.commit()

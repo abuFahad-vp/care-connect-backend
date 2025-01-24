@@ -13,7 +13,7 @@ class Autherize:
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
     SECRET_KEY = "aca9754d810d35c36707c65d81475de59aba95d37c3a133882c5551490490120"
     ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+    ACCESS_TOKEN_EXPIRE_DAY = 3
     TIME_GAP = timedelta(seconds=10)
     db: DB = None
 
