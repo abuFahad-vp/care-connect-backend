@@ -257,14 +257,30 @@ async def new_service_request(
             "timeout": str(datetime.now() + timedelta(seconds=timeout)),
         }
 
+        potential_volunteers = []
+        lat1, lon1 = map(float, current_user.location.split(","))
         for volunteer in volunteers:
-            if volunteer.email in connected_clients:
-                websocket = connected_clients[volunteer.email]
-                await websocket.send_text(json.dumps(request))
+            lat2, lon2 = map(float, volunteer.location.split(","))
+            curr_dist = Util.calculate_distance(lat1, lon1, lat2, lon2)
+            potential_volunteers.append((curr_dist, volunteer))
+
+        potential_volunteers = sorted(potential_volunteers, key=lambda x: x[0])
+        print("connected clinets = ", connected_clients)
 
         try:
-            while True:
-                message = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
+            for (_, volunteer) in potential_volunteers:
+                if volunteer.email not in connected_clients:
+                    continue
+                is_active = False
+                for services in active_services.values():
+                    print(services)
+                    if services.get("volunteer_email") == volunteer.email:
+                        is_active = True
+                if is_active:
+                    continue
+                websocket = connected_clients[volunteer.email]
+                await websocket.send_text(json.dumps(request))
+                message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
                 message = message.split(":")
                 
                 if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
@@ -282,6 +298,7 @@ async def new_service_request(
                     background_tasks.add_task(monitor_service, service_id)
                     new_service_request_queue.task_done()
                     return {"status": "accepted", "service_id": service_id}
+            return {"status": "failed", "service_id": service_id}
         except asyncio.TimeoutError:
             del active_services[service_id]
             raise HTTPException(status_code=408, detail="No volunteer accepted the request")
