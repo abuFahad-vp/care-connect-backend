@@ -217,6 +217,7 @@ async def new_service_request(
     try:
         service_form.check_valid_time()
         service_form.validate_locations()
+        service_form.validate_contact_number()
         service_id = str(uuid.uuid4())
 
         service_form_text = {
@@ -273,7 +274,6 @@ async def new_service_request(
                     continue
                 is_active = False
                 for services in active_services.values():
-                    print(services)
                     if services.get("volunteer_email") == volunteer.email:
                         is_active = True
                 if is_active:

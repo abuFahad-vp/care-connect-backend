@@ -3,6 +3,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from datetime import date, datetime
 from fastapi import UploadFile, Form, File
 from enum import Enum
+import re
+import phonenumbers
+from phonenumbers.phonenumberutil import NumberParseException
 
 class ElderStatus:
     not_assigned: str = "not_assigned"
@@ -15,12 +18,7 @@ class UserBase(BaseModel):
     email: EmailStr = Field( ..., description="User's email address",)
     password: str = Field( ..., description="Hashed password")
     dob: date = Field( ..., description="Date of birth in YYYY-MM-DD format", examples=["1990-01-01"])
-    contact_number: str = Field(
-        ..., 
-        pattern=r"^\+?[0-9]{6,15}$",
-        description="Contact number",
-        examples=["1234567890"]
-    )
+    contact_number: str = Field( ..., description="Contact number")
     location: str = Field(
         ...,
         pattern=r"^[-+]?\d{1,3}\.\d+,\s?[-+]?\d{1,3}\.\d+$",
@@ -64,6 +62,16 @@ class UserCreate(UserBase):
             raise ValueError('Passwords do not match')
         return v
 
+    @field_validator('contact_number')
+    def validate_contact_number(cls, v, values):
+        try:
+            parsed_number = phonenumbers.parse(v)
+            if not phonenumbers.is_valid_number(parsed_number):
+                raise ValueError("Invalid contact number")
+            return v
+        except NumberParseException:
+            raise ValueError("Invalid contact number")
+
 class ServiceRequestForm(BaseModel):
     description: str = Field(..., description="Description about the service required")
     documents: Optional[List[UploadFile]] = Field(
@@ -76,12 +84,17 @@ class ServiceRequestForm(BaseModel):
     )
     time_period_from: datetime = Field(..., description="start time for the service")
     time_period_to: datetime = Field(..., description="end time for the service")
-    contact_number: str = Field(
-        ..., 
-        pattern=r"^\+?[0-9]{6,15}$",
-        description="Contact number",
-        examples=["1234567890"]
-    )
+    contact_number: str = Field( ..., description="Contact number")
+
+    def validate_contact_number(self):
+        try:
+            parsed_number = phonenumbers.parse(self.contact_number)
+            if not phonenumbers.is_valid_number(parsed_number):
+                raise ValueError("Invalid contact number")
+        except NumberParseException:
+            raise ValueError("Invalid contact number")
+
+
 
     def validate_locations(self):
         if not self.locations or len(self.locations) < 1:
