@@ -106,6 +106,22 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     connected_clients[current_user.email] = websocket
     try:
+        current_time = datetime.now()
+        for service_id, service in active_services.items():
+            if (service["status"] == ServiceStatus.PENDING and 
+            current_time < service["timeout_end"] and
+            current_user.email not in service["notified_volunteers"]):
+
+                request = {
+                    "type": "new_service_request",
+                    "service_id": service_id,
+                    "user_profile": service["user_profile"],
+                    "service_form": service["service_form"],
+                    "timeout": str(service["timeout_end"])
+                }
+                await websocket.send_text(json.dumps(request))
+                service["notified_volunteers"].append(current_user.email)
+
         while True:
             response = await websocket.receive_json()
             print("Websocket msg: ", response)
@@ -217,9 +233,8 @@ async def new_service_request(
     try:
         service_form.check_valid_time()
         service_form.validate_locations()
-        service_form.validate_contact_number()
         service_id = str(uuid.uuid4())
-        start_time = datetime.now()
+        timeout_end = datetime.now() + timedelta(seconds=timeout)
 
         service_form_text = {
             "service_id": service_id,
@@ -244,7 +259,10 @@ async def new_service_request(
             "elder_email": current_user.email,
             "status": ServiceStatus.PENDING,
             "created_at": datetime.now(),
-            "service_form": service_form_text
+            "service_form": service_form_text,
+            "notified_volunteers": [],
+            "timeout_end": timeout_end,
+            "user_profile": str_userbase(current_user)
         }
 
         volunteers = db.session.query(UserModelDB).filter(
@@ -259,57 +277,39 @@ async def new_service_request(
             "timeout": str(datetime.now() + timedelta(seconds=timeout)),
         }
 
-        potential_volunteers = []
-        lat1, lon1 = map(float, current_user.location.split(","))
         for volunteer in volunteers:
-            lat2, lon2 = map(float, volunteer.location.split(","))
-            curr_dist = Util.calculate_distance(lat1, lon1, lat2, lon2)
-            potential_volunteers.append((curr_dist, volunteer))
-
-        potential_volunteers = sorted(potential_volunteers, key=lambda x: x[0])
-        print("connected clinets = ", connected_clients)
-
-        try:
-            for (_, volunteer) in potential_volunteers:
-                if datetime.now() - start_time > timedelta(seconds=timeout):
-                    raise asyncio.TimeoutError
-
-                if volunteer.email not in connected_clients:
-                    continue
-                is_active = False
-                for services in active_services.values():
-                    if services.get("volunteer_email") == volunteer.email:
-                        is_active = True
-                if is_active:
-                    continue
+            if volunteer.email in connected_clients:
                 websocket = connected_clients[volunteer.email]
                 await websocket.send_text(json.dumps(request))
+                active_services[service_id]["notified_volunteers"].append(volunteer.email)
 
-                message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
+        try:
+            while True:
+                remaining_time = (timeout_end - datetime.now()).total_seconds()
+                if remaining_time <= 0:
+                    raise asyncio.TimeoutError
+
+                message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=remaining_time)
                 message = message.split(":")
                 
                 if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
                     volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[4]))
-                    if current_user.email in connected_clients:
-                        await connected_clients[current_user.email].send_text(json.dumps(
-                            {
-                                "type": "volunteer_accepted",
-                                "service_id": service_id,
-                                "user_profile":str_userbase(volunteer_profile)
-                            }
-                        ))
                     active_services[service_id]["volunteer_email"] = volunteer_profile.email
                     active_services[service_id]["status"] = ServiceStatus.ACCEPTED
                     background_tasks.add_task(monitor_service, service_id)
+
+                    for email in active_services[service_id]["notified_volunteers"]:
+                        if email != volunteer.email and email in connected_clients:
+                            await connected_clients[email].send_text(json.dumps({
+                                "type": "service_cancelled",
+                                "service_id": service_id,
+                                "reason": "accepted_by_another"
+                            }))
                     return {"status": "accepted", "service_id": service_id, "user_profile": str_userbase(volunteer_profile)}
-            return {"status": "failed", "service_id": service_id}
 
         except asyncio.TimeoutError:
             del active_services[service_id]
-            return JSONResponse(
-                status_code=408, 
-                content= {"detail":"Timed Out"}
-            )
+            raise HTTPException(status_code=408, detail="Time Out. No volunteer accepted the request")
 
     except Exception as e:
         db.session.rollback()
