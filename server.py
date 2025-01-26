@@ -219,6 +219,7 @@ async def new_service_request(
         service_form.validate_locations()
         service_form.validate_contact_number()
         service_id = str(uuid.uuid4())
+        start_time = datetime.now()
 
         service_form_text = {
             "service_id": service_id,
@@ -270,6 +271,9 @@ async def new_service_request(
 
         try:
             for (_, volunteer) in potential_volunteers:
+                if datetime.now() - start_time > timedelta(seconds=timeout):
+                    raise asyncio.TimeoutError
+
                 if volunteer.email not in connected_clients:
                     continue
                 is_active = False
@@ -280,6 +284,7 @@ async def new_service_request(
                     continue
                 websocket = connected_clients[volunteer.email]
                 await websocket.send_text(json.dumps(request))
+
                 message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=timeout)
                 message = message.split(":")
                 
@@ -296,12 +301,15 @@ async def new_service_request(
                     active_services[service_id]["volunteer_email"] = volunteer_profile.email
                     active_services[service_id]["status"] = ServiceStatus.ACCEPTED
                     background_tasks.add_task(monitor_service, service_id)
-                    new_service_request_queue.task_done()
-                    return {"status": "accepted", "service_id": service_id}
+                    return {"status": "accepted", "service_id": service_id, "user_profile": str_userbase(volunteer_profile)}
             return {"status": "failed", "service_id": service_id}
+
         except asyncio.TimeoutError:
             del active_services[service_id]
-            raise HTTPException(status_code=408, detail="No volunteer accepted the request")
+            return JSONResponse(
+                status_code=408, 
+                content= {"detail":"Timed Out"}
+            )
 
     except Exception as e:
         db.session.rollback()
