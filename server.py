@@ -105,26 +105,28 @@ async def websocket_endpoint(websocket: WebSocket):
     current_user = Autherize.dep_get_current_user(token)
     await websocket.accept()
     connected_clients[current_user.email] = websocket
+
     try:
-        current_time = datetime.now()
-        for service_id, service in active_services.items():
-            if (service["status"] == ServiceStatus.PENDING and 
-            current_time < service["timeout_end"] and
-            current_user.email not in service["notified_volunteers"]):
-
-                request = {
-                    "type": "new_service_request",
-                    "service_id": service_id,
-                    "user_profile": service["user_profile"],
-                    "service_form": service["service_form"],
-                    "timeout": str(service["timeout_end"])
-                }
-                await websocket.send_text(json.dumps(request))
-                service["notified_volunteers"].append(current_user.email)
-
         while True:
             response = await websocket.receive_json()
-            print("Websocket msg: ", response)
+            current_time = datetime.now()
+            # print("Websocket msg: ", response)
+            if response["type"] == "load_aayi":
+                    for service_id, service in active_services.items():
+                        if (service["status"] == ServiceStatus.PENDING and 
+                        current_time < service["timeout_end"] and
+                        current_user.email not in service["notified_volunteers"]):
+
+                            request = {
+                                "type": "new_service_request",
+                                "service_id": service_id,
+                                "user_profile": service["user_profile"],
+                                "service_form": service["service_form"],
+                                "timeout": str(service["timeout_end"])
+                            }
+                            await websocket.send_text(json.dumps(request))
+                            service["notified_volunteers"].append(current_user.email)
+
             if response["type"].startswith("new_volunteer_request"):
                 await new_volunteer_request_queue.put(response["type"])
 
@@ -299,7 +301,7 @@ async def new_service_request(
                     background_tasks.add_task(monitor_service, service_id)
 
                     for email in active_services[service_id]["notified_volunteers"]:
-                        if email != volunteer.email and email in connected_clients:
+                        if email != volunteer_profile.email and email in connected_clients:
                             await connected_clients[email].send_text(json.dumps({
                                 "type": "service_cancelled",
                                 "service_id": service_id,
@@ -309,7 +311,7 @@ async def new_service_request(
 
         except asyncio.TimeoutError:
             del active_services[service_id]
-            raise HTTPException(status_code=408, detail="Time Out. No volunteer accepted the request")
+            return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request"})
 
     except Exception as e:
         db.session.rollback()
