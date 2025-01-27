@@ -104,8 +104,8 @@ class ServiceRequestForm(BaseModel):
                 raise ValueError("Each location must be in the format 'URL|Description'")
     
     def check_valid_time(self):
-        if self.time_period_to < self.time_period_from:
-                raise ValueError('Invalid time period')
+        if self.time_period_to < datetime.now() or self.time_period_to < self.time_period_from:
+                raise ValueError('Request failed due to an invalid time period or a timeout')
     
 
 class ServiceStatus(str, Enum):

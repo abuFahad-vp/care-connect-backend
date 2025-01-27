@@ -219,24 +219,25 @@ async def monitor_service(service_id: str):
 
         if service["status"] != "accepted":
             del active_services[service_id]
+            print("Service with service id:", service_id, "deleted.")
             for filename in os.listdir("uploads"):
                     if filename.startswith(service_id) and os.path.isfile(f"uploads/{filename}"):
                         os.remove(f"uploads/{filename}")
                         break
         await asyncio.sleep(1)
 
-@app.post("/elder/new_service_request/{timeout}")
+@app.post("/elder/new_service_request/{timeout_end}")
 async def new_service_request(
-    timeout: float,
+    timeout_end: datetime,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
     current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)],
     background_tasks: BackgroundTasks
     ):
+
+    service_id = str(uuid.uuid4())
     try:
         service_form.check_valid_time()
         service_form.validate_locations()
-        service_id = str(uuid.uuid4())
-        timeout_end = datetime.now() + timedelta(seconds=timeout)
 
         service_form_text = {
             "service_id": service_id,
@@ -276,7 +277,7 @@ async def new_service_request(
             "service_id": service_id,
             "user_profile": str_userbase(current_user),
             "service_form": service_form_text,
-            "timeout": str(datetime.now() + timedelta(seconds=timeout)),
+            "timeout": str(timeout_end),
         }
 
         for volunteer in volunteers:
@@ -291,7 +292,9 @@ async def new_service_request(
                 if remaining_time <= 0:
                     raise asyncio.TimeoutError
 
+                print("Here 1: remaingin time: ", remaining_time)
                 message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=remaining_time)
+                print("Here 2")
                 message = message.split(":")
                 
                 if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
@@ -311,11 +314,11 @@ async def new_service_request(
 
         except asyncio.TimeoutError:
             del active_services[service_id]
-            return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request"})
+            return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request", "service_id": service_id})
 
     except Exception as e:
         db.session.rollback()
-        return JSONResponse(status_code=422, content={"detail": str(e)})
+        return JSONResponse(status_code=422, content={"detail": str(e), "service_id": service_id})
 
 # this will keep searching until a volunteer is found or timeout
 @app.get("/elder/find_assign_volunteer/{timeout}")
