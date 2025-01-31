@@ -34,8 +34,9 @@ os.makedirs("uploads", exist_ok=True)
 
 connected_clients: Dict[str, WebSocket] = {}
 new_volunteer_request_queue = asyncio.Queue()
-new_service_request_queue = asyncio.Queue()
+# new_service_request_queue = asyncio.Queue()
 active_services: Dict[str, dict] = {}
+lock = asyncio.Lock()
 
 @app.get("/ping")
 async def ping():
@@ -120,7 +121,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             request = {
                                 "type": "new_service_request",
                                 "service_id": service_id,
-                                "user_profile": service["user_profile"],
+                                "elder_profile": service["elder_profile"],
                                 "service_form": service["service_form"],
                                 "timeout": str(service["timeout_end"])
                             }
@@ -130,32 +131,84 @@ async def websocket_endpoint(websocket: WebSocket):
             if response["type"].startswith("new_volunteer_request"):
                 await new_volunteer_request_queue.put(response["type"])
 
-            if response["type"].startswith("new_service_request"):
-                await new_service_request_queue.put(f"{response["type"]}:{current_user.email}")
+            # if response["type"].startswith("new_service_request"):
+            #     await new_service_request_queue.put(f"{response["type"]}:{current_user.email}")
 
             if response["type"] == "service_message":
+                await lock.acquire()
                 service_id = response["service_id"]
                 if service_id in active_services:
                     service = active_services[service_id]
-                    if service["status"] == ServiceStatus.ACCEPTED:
-                        service["status"] = response["status_update"]
-                        service["message"] = response["message"]
+
+                    if (service["status"] == ServiceStatus.PENDING and 
+                    response["status"] == ServiceStatus.ACCEPTED and
+                    current_user.user_type == "volunteer"):
+                            service["volunteer_email"] = current_user.email
+                            service["status"] = ServiceStatus.ACCEPTED
+                            print("HERE", connected_clients)
+                            if service["elder_email"] in connected_clients:
+                                await connected_clients[service["elder_email"]].send_text(json.dumps(
+                                    {
+                                        "type": "service_message",
+                                        "status": service["status"],
+                                        "service_id": service_id,
+                                        "message": "request_accepted",
+                                        "volunteer_profile": str_userbase(current_user)
+                                    }
+                                ))
+
+                            await connected_clients[current_user.email].send_text(json.dumps(
+                                {
+                                    "type": "service_message",
+                                    "status": service["status"],
+                                    "service_id": service_id,
+                                    "message": "elder_request_accepted",
+                                    "volunteer_profile": str_userbase(current_user)
+                                }
+                            ))
+
+                    elif service["status"] == ServiceStatus.ACCEPTED:
+                        if current_user.user_type == "volunteer":
+                            email_check = service["volunteer_email"]
+                            partner_email = service["elder_email"]
+                        else:
+                            email_check = service["elder_email"]
+                            partner_email = service["volunteer_email"]
+
+                        if (response["message"] == "initial_request" or
+                        email_check != current_user.email):
+                                await connected_clients[current_user.email].send_text(json.dumps(
+                                    {
+                                        "type": "service_message",
+                                        "status": "not_assigned",
+                                        "service_id": service_id,
+                                        "message": "already_assigned",
+                                    }
+                                ))
+
                         if current_user.user_type == "volunteer":
                             partner_email = service["elder_email"]
                         else:
                             partner_email = service["volunteer_email"]
-                        await connected_clients[partner_email].send_text(json.dumps(
-                            {
-                                "type": "service_message",
-                                "status_update": service["status"],
-                                "service_id": service_id,
-                                "message": service["message"]
-                            }
-                        ))
+                        service["status"] = response["status"]
+                        service["message"] = response["message"]
+                        if partner_email in connected_clients:
+                            await connected_clients[partner_email].send_text(json.dumps(
+                                {
+                                    "type": "service_message",
+                                    "status": service["status"],
+                                    "service_id": service_id,
+                                    "message": service["message"]
+                                }
+                            ))
                 else:
                     await websocket.send_text(json.dumps({"type":"service_not_found"}))
+                
+                lock.release()
 
-    except Exception:
+
+    except Exception as e:
+        print("ERROR: ", e)
         del connected_clients[current_user.email]
 
 # user endpoints
@@ -231,7 +284,6 @@ async def new_service_request(
     timeout_end: datetime,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
     current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)],
-    background_tasks: BackgroundTasks
     ):
 
     service_id = str(uuid.uuid4())
@@ -265,7 +317,7 @@ async def new_service_request(
             "service_form": service_form_text,
             "notified_volunteers": [],
             "timeout_end": timeout_end,
-            "user_profile": str_userbase(current_user)
+            "elder_profile": str_userbase(current_user)
         }
 
         volunteers = db.session.query(UserModelDB).filter(
@@ -275,7 +327,7 @@ async def new_service_request(
         request = {
             "type": "new_service_request",
             "service_id": service_id,
-            "user_profile": str_userbase(current_user),
+            "elder_profile": str_userbase(current_user),
             "service_form": service_form_text,
             "timeout": str(timeout_end),
         }
@@ -285,36 +337,37 @@ async def new_service_request(
                 websocket = connected_clients[volunteer.email]
                 await websocket.send_text(json.dumps(request))
                 active_services[service_id]["notified_volunteers"].append(volunteer.email)
+        
+        return {"status": "pending", "service_id": service_id}
 
-        try:
-            while True:
-                remaining_time = (timeout_end - datetime.now()).total_seconds()
-                if remaining_time <= 0:
-                    raise asyncio.TimeoutError
+        # try:
+        #     while True:
+        #         remaining_time = (timeout_end - datetime.now()).total_seconds()
+        #         if remaining_time <= 0:
+        #             raise asyncio.TimeoutError
 
-                print("Here 1: remaingin time: ", remaining_time)
-                message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=remaining_time)
-                print("Here 2")
-                message = message.split(":")
+        #         print("Here 1: remaingin time: ", remaining_time)
+        #         message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=remaining_time)
+        #         print("Here 2")
+        #         message = message.split(":")
                 
-                if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
-                    volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[4]))
-                    active_services[service_id]["volunteer_email"] = volunteer_profile.email
-                    active_services[service_id]["status"] = ServiceStatus.ACCEPTED
-                    background_tasks.add_task(monitor_service, service_id)
+        #         if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
+        #             volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[4]))
+        #             active_services[service_id]["volunteer_email"] = volunteer_profile.email
+        #             active_services[service_id]["status"] = ServiceStatus.ACCEPTED
+        #             background_tasks.add_task(monitor_service, service_id)
 
-                    for email in active_services[service_id]["notified_volunteers"]:
-                        if email != volunteer_profile.email and email in connected_clients:
-                            await connected_clients[email].send_text(json.dumps({
-                                "type": "service_cancelled",
-                                "service_id": service_id,
-                                "reason": "accepted_by_another"
-                            }))
-                    return {"status": "accepted", "service_id": service_id, "user_profile": str_userbase(volunteer_profile)}
+        #             for email in active_services[service_id]["notified_volunteers"]:
+        #                 if email != volunteer_profile.email and email in connected_clients:
+        #                     await connected_clients[email].send_text(json.dumps({
+        #                         "type": "service_cancelled",
+        #                         "service_id": service_id,
+        #                         "reason": "accepted_by_another"
+        #                     }))
 
-        except asyncio.TimeoutError:
-            del active_services[service_id]
-            return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request", "service_id": service_id})
+        # except asyncio.TimeoutError:
+        #     del active_services[service_id]
+        #     return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request", "service_id": service_id})
 
     except Exception as e:
         db.session.rollback()
@@ -361,7 +414,7 @@ async def find_assign_volunteer(
                     # Send a request to the volunteer and wait for response
                     request = {
                         "type": "new_volunteer_request",
-                        "user_profile": str_userbase(current_user),
+                        "elder_profile": str_userbase(current_user),
                         "timeout": str(datetime.now() + timedelta(seconds=timeout))
                     }
                     await websocket.send_text(json.dumps(request))
@@ -417,16 +470,21 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
             content={"detail": str(e)}
         )
 
-@app.post("/volunteer/get_documents/{service_id}/{document}")
+@app.get("/volunteer/get_documents/{service_id}/{document}")
 async def update_record(service_id: str, document: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_volunteer)]):
     try: 
         if service_id not in active_services:
             raise ValueError("Invalid service_id or there's no service running")
+
         service = active_services[service_id]
-        if service["volunteer_email"] != current_user.email:
-            raise Exception("access denied")
-        if active_services[service_id]["status"] != ServiceStatus.ACCEPTED:
+        # if service["volunteer_email"] != current_user.email:
+        #     raise Exception("access denied")
+
+        # print(service)
+
+        if service["status"] != ServiceStatus.ACCEPTED and service["status"] != ServiceStatus.PENDING:
             raise ValueError("Service is finished")
+
         filename = f"{service_id}_{document}"
         file = f"uploads/{filename}"
 

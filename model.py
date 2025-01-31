@@ -105,7 +105,7 @@ class ServiceRequestForm(BaseModel):
     
     def check_valid_time(self):
         if self.time_period_to < datetime.now() or self.time_period_to < self.time_period_from:
-                raise ValueError('Request failed due to an invalid time period or a timeout')
+                raise ValueError('Invalid time period')
     
 
 class ServiceStatus(str, Enum):
