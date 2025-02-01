@@ -68,7 +68,7 @@ class Autherize:
     def dep_no_service_assigned(current_user: Annotated[UserBase, Depends(dep_only_elder)]):
         record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
         if record.status != ElderStatus.not_assigned:
-            raise Autherize.auth_exception("already assigned or already requested")
+            raise Autherize.auth_exception("already_assigned")
         return record
 
     @staticmethod

@@ -252,16 +252,38 @@ async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_
 @app.post("/user/unassign")
 async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
     _, _, record = request
+
+    response = {
+        "type": "volunteer_service_message",
+        "message": "unassign"
+    }
+
+    if record.volunteer_email in connected_clients:
+        # print("volunteer present")
+        await connected_clients[record.volunteer_email].send_text(json.dumps(response))
+
+    if record.user_email in connected_clients:
+        # print("elder present")
+        await connected_clients[record.user_email].send_text(json.dumps(response))
+
     record.volunteer_email = None
     record.status = ElderStatus.not_assigned
     db.session.commit()
+
     return {"message": "unassigned"}
 
 # elder endpoints
 @app.post("/elder/new_volunteer_request")
-async def new_volunteer_request(current_record: Annotated[ElderRecord, Depends(Autherize.dep_no_service_assigned)]):
-    current_record.status = ElderStatus.searching_a_volunteer
-    db.session.commit()
+async def new_volunteer_request(current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
+    record = db.get_elder_record_by_email(current_user.email, current_user.user_type)
+    if record.status == ElderStatus.assigned:
+        return {"message": "already_assigned"}
+    if record.status == ElderStatus.searching_a_volunteer:
+        return {"message": "already_searching"}
+    if record.status == ElderStatus.not_assigned:
+        record.status = ElderStatus.searching_a_volunteer
+        db.session.commit()
+        return {"message": ElderStatus.searching_a_volunteer}
     return {"message": "updated"}
 
 async def monitor_service(service_id: str):
