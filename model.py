@@ -116,6 +116,7 @@ class ServiceStatus(str, Enum):
 
 async def get_record_form(
     data: Annotated[str, Form()] = None,
+    # "blood_pressure": blood_pressure,
     # heart_rate: Annotated[str, Form()] = None,
     # blood_sugar: Annotated[str, Form()] = None,
     # oxygen_saturation: Annotated[str, Form()] = None,
@@ -170,11 +171,13 @@ def str_userbase(current_user: UserBase):
     }
 
 async def get_feedback(
+    reported_email: Annotated[str, Form()],
     feedback: Annotated[str, Form()],
     feedback_type: Annotated[str, Form()],
     status: Annotated[str, Form()] = "not_reviewed"
 ):
     return {
+        "reported_email": reported_email,
         "feedback": feedback,
         "status": status,
         "feedback_type": feedback_type

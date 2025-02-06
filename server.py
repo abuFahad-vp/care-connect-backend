@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, WebSocket, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Query, status, UploadFile, WebSocket, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated, Tuple, Dict
 from datetime import timedelta
@@ -224,12 +224,10 @@ async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRe
 @app.post("/user/feedback")
 async def feedback(
         feedback_form: Annotated[dict, Depends(get_feedback)], 
-        user_record: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)],
+        current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]
     ):
     try:
-        from_user, to_user, _ = user_record
-        feedback_form["reporter_email"] = from_user.email
-        feedback_form["reported_email"] = to_user.email
+        feedback_form["reporter_email"] = current_user.email
         feedback_db = Feedback(**feedback_form)
         db.session.add(feedback_db)
         db.session.commit()
@@ -484,6 +482,11 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
         record.last_check_in = datetime.now()
         volunteer.volunteer_credits += 50
         db.session.commit()
+        if record.user_email in connected_clients:
+            await connected_clients[record.user_email].send_text(json.dumps({
+                "type": "volunteer_service",
+                "message": "record_updated"
+            }))
         return {"message":"updated"}
     except Exception as e:
         db.session.rollback()
@@ -493,7 +496,14 @@ async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB]
         )
 
 @app.get("/volunteer/get_documents/{service_id}/{document}")
-async def update_record(service_id: str, document: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_volunteer)]):
+async def update_record(service_id: str, document: str, token: str = Query(...)):
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Token missing")
+
+    current_user = Autherize.dep_get_current_user(token)
+    current_user = Autherize.dep_only_volunteer(current_user)
+
     try: 
         if service_id not in active_services:
             raise ValueError("Invalid service_id or there's no service running")
@@ -523,6 +533,38 @@ async def update_record(service_id: str, document: str, current_user: Annotated[
             status_code=422,
             content={"detail": str(e)}
         )
+
+# @app.get("/volunteer/get_documents/{service_id}/{document}")
+# async def update_record(service_id: str, document: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_volunteer)]):
+#     try: 
+#         if service_id not in active_services:
+#             raise ValueError("Invalid service_id or there's no service running")
+
+#         service = active_services[service_id]
+#         # if service["volunteer_email"] != current_user.email:
+#         #     raise Exception("access denied")
+
+#         # print(service)
+
+#         if service["status"] != ServiceStatus.ACCEPTED and service["status"] != ServiceStatus.PENDING:
+#             raise ValueError("Service is finished")
+
+#         filename = f"{service_id}_{document}"
+#         file = f"uploads/{filename}"
+
+#         if not os.path.isfile(file):
+#             raise ValueError("file not found")
+        
+#         return FileResponse(file, status_code=200, media_type="application/octet-stream",filename=filename)
+        
+        
+
+#     except Exception as e:
+#         db.session.rollback()
+#         return JSONResponse(
+#             status_code=422,
+#             content={"detail": str(e)}
+#         )
 
 # admin endpoints
 @app.get("/admin/records")
@@ -590,7 +632,7 @@ async def delete_user(email: str, current_user: Annotated[UserBase, Depends(Auth
         )
 
 @app.get("/admin/feedback")
-async def get_feedback(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+async def get_users_feedback(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
         feedbacks = db.session.query(Feedback).all()
         return feedbacks
