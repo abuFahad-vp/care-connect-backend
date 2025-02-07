@@ -643,11 +643,11 @@ async def get_users_feedback(current_user: Annotated[UserBase, Depends(Autherize
             content={"detail": str(e)}
         )
 
-@app.put("/admin/feedback/reviewed/{email}")
-async def feedback_reviewed(email: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+@app.put("/admin/feedback/review/{id}")
+async def feedback_reviewed(id: int, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
         feedbacks = db.session.query(Feedback).filter(
-            Feedback.reporter_email == email
+            Feedback.id == id
         ).all()
 
         if not feedbacks:
