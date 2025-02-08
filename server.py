@@ -231,6 +231,10 @@ async def feedback(
         feedback_db = Feedback(**feedback_form)
         db.session.add(feedback_db)
         db.session.commit()
+        if "admin@admin.com" in connected_clients:
+            await connected_clients["admin@admin.com"].send_text(json.dumps({
+                "type": "new_feedback"
+            }))
         return {"message": "feedbacked sented"}
     except Exception as e:
         db.session.rollback()
