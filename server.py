@@ -410,58 +410,66 @@ async def find_assign_volunteer(
         current_user, record = request
         lat1, lon1 = map(float, current_user.location.split(","))
 
-        volunteers = db.get_unassigned_volunteers()
+        while True:
+            volunteers = db.get_unassigned_volunteers()
 
-        if not volunteers:
-            return JSONResponse(
-                status_code=422, content={"detail": "No active volunteers"}
-            )
+            if not volunteers:
+                return JSONResponse(
+                    status_code=422, content={"detail": "No active volunteers"}
+                )
 
-        lat1, lon1 = map(float, current_user.location.split(","))
-        potential_volunteers = []
+            lat1, lon1 = map(float, current_user.location.split(","))
+            potential_volunteers = []
 
-        for volunteer in volunteers:
-            lat2, lon2 = map(float, volunteer.location.split(","))
-            curr_dist = Util.calculate_distance(lat1, lon1, lat2, lon2)
-            potential_volunteers.append((curr_dist, volunteer))
+            for volunteer in volunteers:
+                lat2, lon2 = map(float, volunteer.location.split(","))
+                curr_dist = Util.calculate_distance(lat1, lon1, lat2, lon2)
+                potential_volunteers.append((curr_dist, volunteer))
 
-        potential_volunteers = sorted(potential_volunteers, key=lambda x: x[0])
-        print("connected clinets = ", connected_clients)
+            potential_volunteers = sorted(potential_volunteers, key=lambda x: x[0])
+            print("connected clinets = ", connected_clients)
 
-        while potential_volunteers:
-            _, volunteer = potential_volunteers.pop(0)
+            while potential_volunteers:
+                Autherize.dep_searching_volunteer(current_user)
 
-            if volunteer.email in connected_clients:
-                websocket = connected_clients[volunteer.email]
+                _, volunteer = potential_volunteers.pop(0)
 
-                try:
-                    # Send a request to the volunteer and wait for response
-                    request = {
-                        "type": "new_volunteer_request",
-                        "elder_profile": str_userbase(current_user),
-                        "timeout": str(datetime.now() + timedelta(seconds=timeout))
-                    }
-                    await websocket.send_text(json.dumps(request))
-                    message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
-                    new_volunteer_request_queue.task_done()
-                    message = message.split(":")
-                    if message[1] == "accept" and message[2] == current_user.email:
-                        record.volunteer_email = volunteer.email
-                        record.status = ElderStatus.assigned
-                        db.session.commit()
-                        return JSONResponse(
-                            status_code=200,
-                            content={"detail": "Volunteer assigned successfully"},
-                        )
-                except Exception as e:
-                    # Handle connection or other errors
-                    continue
+                if volunteer.email in connected_clients:
+                    websocket = connected_clients[volunteer.email]
 
-        # If no volunteer accepts, return a failure response
-        return JSONResponse(
-            status_code=422,
-            content={"detail": "No volunteers accepted the request"},
-        )
+                    try:
+                        # Send a request to the volunteer and wait for response
+                        request = {
+                            "type": "new_volunteer_request",
+                            "elder_profile": str_userbase(current_user),
+                            "timeout": str(datetime.now() + timedelta(seconds=timeout))
+                        }
+                        await websocket.send_text(json.dumps(request))
+                        message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
+                        new_volunteer_request_queue.task_done()
+                        message = message.split(":")
+                        if message[1] == "accept" and message[2] == current_user.email:
+                            record.volunteer_email = volunteer.email
+                            record.status = ElderStatus.assigned
+                            db.session.commit()
+                            return JSONResponse(
+                                status_code=200,
+                                content={"detail": "Volunteer assigned successfully"},
+                            )
+                    except Exception:
+                        # Handle connection or other errors
+                        # return JSONResponse(
+                        #     status_code=422,
+                        #     content={"detail": str(e)},
+                        # )
+                        continue
+            # If no volunteer accepts, return a failure response
+            # return JSONResponse(
+            #     status_code=422,
+            #     content={"detail": "No volunteers accepted the request"},
+            # )
+            # print("IT's running")
+            await asyncio.sleep(5)
 
     except Exception as e:
         db.session.rollback()
