@@ -303,9 +303,10 @@ async def monitor_service(service_id: str):
                         break
         await asyncio.sleep(1)
 
-@app.post("/elder/new_service_request/{timeout_end}")
+@app.post("/elder/new_service_request/{timeout_end}/{urgent}")
 async def new_service_request(
     timeout_end: datetime,
+    urgent: bool,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
     current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)],
     ):
@@ -323,6 +324,7 @@ async def new_service_request(
             "time_period_from": str(service_form.time_period_from),
             "time_period_to": str(service_form.time_period_to),
             "contact_number": service_form.contact_number,
+            "urgent": urgent,
         }
 
         if service_form.documents is not None and len(service_form.documents) > 0 and service_form.has_documents:
