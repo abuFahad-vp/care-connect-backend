@@ -1,9 +1,9 @@
-from db_init import UserModelDB, ElderRecord
+from db_init import UserModelDB, ElderRecord, ChatMessage
 from model import UserBase, ElderStatus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
-from datetime import date
+from datetime import date, datetime
 
 class DB:
     def __init__(self):
@@ -34,7 +34,7 @@ class DB:
         )
         result = self.session.execute(stmt).scalars().all()
         return result
- 
+
     def get_elder_record_by_email(self, email: str, user_type: str):
         if user_type == "elder":
             stmt = select(ElderRecord).where(ElderRecord.user_email == email)
@@ -56,6 +56,7 @@ class DB:
             user_email=user.email,
             status = ElderStatus.not_assigned,
             volunteer_email=None,
+            service_id=None,
             data = None,
             # blood_pressure=None,  
             # heart_rate=None,  
@@ -100,4 +101,15 @@ class DB:
     def add_user(self, user: UserBase):
         new_user = DB.from_responseModel_to_dbModel(user)
         self.session.add(new_user)
+        self.session.commit()
+
+    def add_message(self, response: dict):
+        message = ChatMessage(
+            content=response["content"],
+            service_id=response["service_id"],
+            sender=response["sender"],
+            reciever=response["reciever"],
+            status=response["status"]
+        )
+        self.session.add(message)
         self.session.commit()

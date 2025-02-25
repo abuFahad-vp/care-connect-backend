@@ -1,10 +1,12 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Date, ForeignKey, Float, DateTime, Text
+from sqlalchemy import \
+    Column, Integer, String, Date, ForeignKey, DateTime, Text, Boolean
 from datetime import datetime
 
 engine = create_engine('sqlite:///amanah.db', echo=True, connect_args={"check_same_thread": False})
 Base = declarative_base()
+
 
 # Base User Model (shared attributes)
 class UserModelDB(Base):
@@ -21,11 +23,13 @@ class UserModelDB(Base):
     profile_image = Column(String, nullable=False)
     volunteer_credits = Column(Integer, nullable=True)
 
+
 class ElderRecord(Base):
     __tablename__ = "elder_records"
     id = Column(Integer, primary_key=True, index=True)
-    user_email = Column(String(255), ForeignKey("users.email"), nullable=False, unique=True)  # Links to the elder's user record
-    volunteer_email = Column(String(255), ForeignKey("users.email"), nullable=True, unique=True)  # Links to the assigned volunteer
+    service_id = Column(Text, nullable=True)
+    user_email = Column(String(255), ForeignKey("users.email"), nullable=False, unique=True)
+    volunteer_email = Column(String(255), ForeignKey("users.email"), nullable=True, unique=True)
     data = Column(String, nullable=True)
     # heart_rate = Column(String, nullable=True)
     # blood_sugar = Column(String, nullable=True)
@@ -38,8 +42,10 @@ class ElderRecord(Base):
     elder = relationship("UserModelDB", foreign_keys=[user_email], backref="elder_record")
     volunteer = relationship("UserModelDB", foreign_keys=[volunteer_email])
 
+
 class Feedback(Base):
     __tablename__ = 'feedback'
+
     id = Column(Integer, primary_key=True, index=True)
     reporter_email = Column(String(255), ForeignKey('users.email'), nullable=False)
     reported_email = Column(String(255), ForeignKey('users.email'), nullable=False)
@@ -50,5 +56,18 @@ class Feedback(Base):
 
     volunteer = relationship("UserModelDB", foreign_keys=[reporter_email])
     user = relationship("UserModelDB", foreign_keys=[reported_email])
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_id = Column(Text, nullable=False)
+    sender = Column(Text, nullable=False)
+    reciever = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    status = Column(Text, default=False)
+
 
 Base.metadata.create_all(engine)

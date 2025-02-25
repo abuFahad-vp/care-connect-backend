@@ -68,6 +68,7 @@ async def register(
         db.add_user(new_user)
         if new_user.user_type == "elder":
             db.create_empty_elder_record(new_user)
+            return new_user
         return new_user
     except IntegrityError as e:
         db.session.rollback()
@@ -203,13 +204,30 @@ async def websocket_endpoint(websocket: WebSocket):
                             ))
                 else:
                     await websocket.send_text(json.dumps({"type":"service_not_found"}))
-                
-                lock.release()
 
+                lock.release()
 
     except Exception as e:
         print("ERROR: ", e)
         del connected_clients[current_user.email]
+
+
+@app.websocket("/chat")
+async def chat_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        while True:
+            response = await websocket.receive_json()
+            # print("content: ", response["content"])
+            # print("timestamp: ", response["timestamp"])
+            # print("service_id: ", response["service_id"])
+            # print("sender: ", response["sender"])
+            # print("reciever: ", response["reciever"])
+            # print("status: ", response["status"])
+            db.add_message(response)
+    except Exception as e:
+        print("ERROR: ", e)
+
 
 # user endpoints
 @app.get("/user/know_your_partner")
@@ -220,6 +238,7 @@ async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRe
         "partner": partner,
         "record": record
     }
+
 
 @app.post("/user/feedback")
 async def feedback(
@@ -409,6 +428,7 @@ async def find_assign_volunteer(
     ]
 ):
     try:
+        service_id = str(uuid.uuid4())
         current_user, record = request
         lat1, lon1 = map(float, current_user.location.split(","))
 
@@ -444,7 +464,8 @@ async def find_assign_volunteer(
                         request = {
                             "type": "new_volunteer_request",
                             "elder_profile": str_userbase(current_user),
-                            "timeout": str(datetime.now() + timedelta(seconds=timeout))
+                            "timeout": str(datetime.now() + timedelta(seconds=timeout)),
+                            "service_id": service_id
                         }
                         await websocket.send_text(json.dumps(request))
                         message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
@@ -453,10 +474,11 @@ async def find_assign_volunteer(
                         if message[1] == "accept" and message[2] == current_user.email:
                             record.volunteer_email = volunteer.email
                             record.status = ElderStatus.assigned
+                            record.service_id = service_id
                             db.session.commit()
                             return JSONResponse(
                                 status_code=200,
-                                content={"detail": "Volunteer assigned successfully"},
+                                content={"detail": "Volunteer assigned successfully", "service_id": service_id },
                             )
                     except Exception:
                         # Handle connection or other errors
@@ -548,37 +570,6 @@ async def update_record(service_id: str, document: str, token: str = Query(...))
             content={"detail": str(e)}
         )
 
-# @app.get("/volunteer/get_documents/{service_id}/{document}")
-# async def update_record(service_id: str, document: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_volunteer)]):
-#     try: 
-#         if service_id not in active_services:
-#             raise ValueError("Invalid service_id or there's no service running")
-
-#         service = active_services[service_id]
-#         # if service["volunteer_email"] != current_user.email:
-#         #     raise Exception("access denied")
-
-#         # print(service)
-
-#         if service["status"] != ServiceStatus.ACCEPTED and service["status"] != ServiceStatus.PENDING:
-#             raise ValueError("Service is finished")
-
-#         filename = f"{service_id}_{document}"
-#         file = f"uploads/{filename}"
-
-#         if not os.path.isfile(file):
-#             raise ValueError("file not found")
-        
-#         return FileResponse(file, status_code=200, media_type="application/octet-stream",filename=filename)
-        
-        
-
-#     except Exception as e:
-#         db.session.rollback()
-#         return JSONResponse(
-#             status_code=422,
-#             content={"detail": str(e)}
-#         )
 
 # admin endpoints
 @app.get("/admin/records")
@@ -594,7 +585,7 @@ async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only
         )
 
 @app.get("/admin/users/{email}")
-async def get_users_email(email: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+async def get_users_email(email: str):
     try:
         user = db.get_user_by_email(email)
         if user is not None:
