@@ -66,7 +66,7 @@ class ChatMessage(Base):
     sender = Column(Text, nullable=False)
     reciever = Column(Text, nullable=False)
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(Text, nullable=False)
     status = Column(Text, default=False)
 
 

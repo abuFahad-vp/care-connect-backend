@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from autherize import Autherize
 from authenticate import Authent
 from db_op import DB
-from db_init import ElderRecord, UserModelDB, Feedback
+from db_init import ElderRecord, UserModelDB, Feedback, ChatMessage
 from util import Util
 from datetime import datetime, timedelta
 import os
@@ -33,6 +33,7 @@ Autherize.db = db
 os.makedirs("uploads", exist_ok=True)
 
 connected_clients: Dict[str, WebSocket] = {}
+connected_clients_chat: Dict[str, WebSocket] = {}
 new_volunteer_request_queue = asyncio.Queue()
 # new_service_request_queue = asyncio.Queue()
 active_services: Dict[str, dict] = {}
@@ -212,9 +213,10 @@ async def websocket_endpoint(websocket: WebSocket):
         del connected_clients[current_user.email]
 
 
-@app.websocket("/chat")
-async def chat_endpoint(websocket: WebSocket):
+@app.websocket("/chat/{email}")
+async def chat_endpoint(websocket: WebSocket, email: str):
     await websocket.accept()
+    connected_clients_chat[email] = websocket
     try:
         while True:
             response = await websocket.receive_json()
@@ -225,11 +227,20 @@ async def chat_endpoint(websocket: WebSocket):
             # print("reciever: ", response["reciever"])
             # print("status: ", response["status"])
             db.add_message(response)
+            if response["reciever"] in connected_clients_chat:
+                await connected_clients_chat[response["reciever"]] \
+                    .send_text(json.dumps(response))
     except Exception as e:
         print("ERROR: ", e)
 
 
 # user endpoints
+@app.get("/user/messages/{service_id}")
+async def get_messages(service_id: str):
+    return db.session \
+        .query(ChatMessage).filter(ChatMessage.service_id == service_id).all()
+
+
 @app.get("/user/know_your_partner")
 async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
     _, partner, record =  request

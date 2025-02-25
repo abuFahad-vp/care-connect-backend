@@ -108,6 +108,7 @@ class DB:
             content=response["content"],
             service_id=response["service_id"],
             sender=response["sender"],
+            timestamp=response["timestamp"],
             reciever=response["reciever"],
             status=response["status"]
         )
