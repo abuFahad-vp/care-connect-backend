@@ -17,6 +17,10 @@ class UserBase(BaseModel):
     full_name: str = Field( ..., min_length=2, max_length=100, description="User's full name",)
     email: EmailStr = Field( ..., description="User's email address",)
     password: str = Field( ..., description="Hashed password")
+    institution_id: str = Field(..., description="Institution id")
+    institution: str = Field(..., description="Institution name")
+    approve: bool = Field(..., descriptions="Captain approval")  # new
+    password: str = Field( ..., description="Hashed password")
     dob: date = Field( ..., description="Date of birth in YYYY-MM-DD format", examples=["1990-01-01"])
     contact_number: str = Field( ..., description="Contact number")
     location: str = Field(
@@ -139,11 +143,14 @@ async def get_user_data(
     email: Annotated[str, Form()],
     password: Annotated[str, Form()],
     confirm_password: Annotated[str, Form()],
+    institution_id: Annotated[str, Form()],
+    institution: Annotated[str, Form()],
     dob: Annotated[date, Form()],
     contact_number: Annotated[str, Form()],
     location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
     profile_image: Annotated[UploadFile, File()],
+    approve: Annotated[bool, Form()]
 ):
     return {
         "user_type": user_type,
@@ -151,12 +158,16 @@ async def get_user_data(
         "email": email,
         "password": password,
         "confirm_password": confirm_password,
+        "institution_id": institution_id,
+        "institution": institution,
+        "approve": approve,
         "dob": dob,
         "contact_number": contact_number,
         "bio": bio,
         "location": location,
         "profile_image": profile_image,
     }
+
 def str_userbase(current_user: UserBase):
     return {
         "user_type": str(current_user.user_type),
@@ -167,7 +178,10 @@ def str_userbase(current_user: UserBase):
         "bio": str(current_user.bio),
         "location": str(current_user.location),
         "profile_image": str(current_user.profile_image),
-        "volunteer_credits": str(current_user.volunteer_credits)
+        "volunteer_credits": str(current_user.volunteer_credits),
+        "institution_id": str(current_user.institution_id),
+        "institution": str(current_user.institution),
+        "approve": str(current_user.approve),
     }
 
 async def get_feedback(

@@ -16,6 +16,7 @@ import asyncio
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
+from institutions import captain_institutions
 
 
 app = FastAPI()
@@ -64,7 +65,10 @@ async def register(
             location=user_create.location,
             bio=user_create.bio,
             profile_image=user_create.profile_image,
-            volunteer_credits=user_create.volunteer_credits
+            volunteer_credits=user_create.volunteer_credits,
+            institution_id=user_create.institution_id,
+            institution=user_create.institution,
+            approve=user_create.approve
         )
         db.add_user(new_user)
         if new_user.user_type == "elder":
@@ -72,6 +76,7 @@ async def register(
             return new_user
         return new_user
     except IntegrityError as e:
+        print("DB Error: ", e)
         db.session.rollback()
         return JSONResponse(
             status_code=422,
@@ -239,6 +244,13 @@ async def chat_endpoint(websocket: WebSocket, email: str):
 async def get_messages(service_id: str):
     return db.session \
         .query(ChatMessage).filter(ChatMessage.service_id == service_id).all()
+
+@app.get("/user/get_institutions")
+async def get_institutions():
+    ins = {}
+    for email, (name, password) in captain_institutions.items():
+        ins[email] = name
+    return ins
 
 
 @app.get("/user/know_your_partner")

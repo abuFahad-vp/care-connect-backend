@@ -14,14 +14,17 @@ class UserModelDB(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_type = Column(String(10), nullable=False)  # 'elder' or 'volunteer'
     full_name = Column(String(255), nullable=False)
+    institution_id = Column(String, nullable=True)  # new
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
     dob = Column(Date(), nullable=False)
+    institution = Column(String, nullable=False)  # new
     contact_number = Column(String(20), nullable=False)
     location = Column(String(100), nullable=False)
     bio = Column(String, nullable=False)
     profile_image = Column(String, nullable=False)
     volunteer_credits = Column(Integer, nullable=True)
+    approve = Column(Boolean, nullable=False)  # new
 
 
 class ElderRecord(Base):

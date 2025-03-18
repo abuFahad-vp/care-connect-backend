@@ -3,34 +3,54 @@ from model import UserBase, ElderStatus
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
-from datetime import date, datetime
+from datetime import date
+from institutions import captain_institutions
+import bcrypt
+
 
 class DB:
+
     def __init__(self):
-        self.engine = create_engine('sqlite:///amanah.db', echo=True, connect_args={"check_same_thread": False})
+        self.engine = create_engine(
+            'sqlite:///amanah.db',
+            echo=True,
+            connect_args={"check_same_thread": False})
+
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
-        admin = UserModelDB(
-            user_type="volunteer",
-            full_name="Admin",
-            email="admin@admin.com",
-            password="$2b$12$HmFTxSN0Njh3a1kpMFirtOPJ6qxTAUBqzIlPz9B28fddbRnPdo96q", # admin123
-            dob=date(1000,10,10),
-            contact_number="123456789",
-            bio="admin",
-            profile_image="no profile",
-            volunteer_credits=0,
-            location="0.0,0.0",
-        )
-        if self.session.query(UserModelDB).filter(UserModelDB.email == "admin@admin.com").first() is None:
-            self.session.add(admin)
-            self.session.commit()
+
+        print("institution: ", captain_institutions)
+
+        for email, (name, password) in captain_institutions.items():
+
+            pwd_bytes = password.encode('utf-8')
+            gen_salt = bcrypt.gensalt()
+            new_pass = bcrypt.hashpw(pwd_bytes, gen_salt)
+
+            captian = UserModelDB(
+                user_type="volunteer",
+                full_name="Captian",
+                email=email,
+                password=new_pass,
+                institution=name,
+                institution_id="00000",
+                dob=date(1000, 10, 10),
+                contact_number="123456789",
+                bio="captian",
+                profile_image="no profile",
+                volunteer_credits=0,
+                location="0.0,0.0",
+                approve=True
+            )
+            if self.session.query(UserModelDB).filter(UserModelDB.email == email).first() is None:
+                self.session.add(captian)
+        self.session.commit()
 
     def get_unassigned_volunteers(self):
         stmt = select(UserModelDB).join(ElderRecord, UserModelDB.email == ElderRecord.volunteer_email, isouter=True).filter(
-            UserModelDB.user_type == "volunteer",  # Only include volunteers
-            (ElderRecord.volunteer_email == None) |  # Volunteer is not assigned
-            (ElderRecord.status != "assigned")  # Volunteer is not assigned in ElderRecord
+            UserModelDB.user_type == "volunteer",
+            (ElderRecord.volunteer_email == None) |
+            (ElderRecord.status != "assigned")
         )
         result = self.session.execute(stmt).scalars().all()
         return result
@@ -54,17 +74,17 @@ class DB:
     def create_empty_elder_record(self, user: UserBase):
         new_record = ElderRecord(
             user_email=user.email,
-            status = ElderStatus.not_assigned,
+            status=ElderStatus.not_assigned,
             volunteer_email=None,
             service_id=None,
-            data = None,
-            # blood_pressure=None,  
-            # heart_rate=None,  
-            # blood_sugar=None,  
-            # oxygen_saturation=None,  
-            # weight=None,  
-            # height=None,  
-            last_check_in=None,  
+            data=None,
+            # blood_pressure=None,
+            # heart_rate=None,
+            # blood_sugar=None,
+            # oxygen_saturation=None,
+            # weight=None,
+            # height=None,
+            last_check_in=None,
         )
         self.session.add(new_record)
         self.session.commit()
@@ -81,7 +101,10 @@ class DB:
             bio=user.bio,
             profile_image=user.profile_image,
             volunteer_credits=user.volunteer_credits,
-            location=user.location
+            location=user.location,
+            institution=user.institution,
+            institution_id=user.institution_id,
+            approve=user.approve
         )
 
     def from_DBModel_to_responseModel(self, user: UserModelDB) -> UserBase:
@@ -95,7 +118,10 @@ class DB:
             bio=user.bio,
             profile_image=user.profile_image,
             location=user.location,
-            volunteer_credits=user.volunteer_credits
+            volunteer_credits=user.volunteer_credits,
+            institution=user.institution,
+            institution_id=user.institution_id,
+            approve=user.approve
         )
 
     def add_user(self, user: UserBase):
