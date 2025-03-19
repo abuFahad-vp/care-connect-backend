@@ -13,7 +13,7 @@ class Authent:
         pwd_bytes = plain_password.encode('utf-8')
         hashed_bytes = hashed_password.encode('utf-8')
         return bcrypt.checkpw(pwd_bytes, hashed_bytes)
-    
+
     def authenticate_user(db: DB, username: str, password: str):
         user = db.get_user_by_email(username)
         if not user:
@@ -21,7 +21,7 @@ class Authent:
         if not Authent.verify_password(password, user.password):
             return False
         return user
-    
+
     async def authenticate_file(file: UploadFile, size, filetype: list = None) -> str:
         if file.size < 1 or file.size > size:
             raise Exception(f"file size have to atleast 1 KB to utmost {size / 1024}KB")

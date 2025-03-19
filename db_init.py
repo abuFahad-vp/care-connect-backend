@@ -52,6 +52,7 @@ class Feedback(Base):
     id = Column(Integer, primary_key=True, index=True)
     reporter_email = Column(String(255), ForeignKey('users.email'), nullable=False)
     reported_email = Column(String(255), ForeignKey('users.email'), nullable=False)
+    institution = Column(String, nullable=False)
     feedback = Column(Text, nullable=False)
     feedback_type = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.now(), nullable=False)

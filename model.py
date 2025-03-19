@@ -150,7 +150,7 @@ async def get_user_data(
     location: Annotated[str, Form()],
     bio: Annotated[str, Form()],
     profile_image: Annotated[UploadFile, File()],
-    approve: Annotated[bool, Form()]
+    approve: Annotated[Boolean, Form()]
 ):
     return {
         "user_type": user_type,

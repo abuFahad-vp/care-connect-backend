@@ -217,7 +217,6 @@ async def websocket_endpoint(websocket: WebSocket):
         print("ERROR: ", e)
         del connected_clients[current_user.email]
 
-
 @app.websocket("/chat/{email}")
 async def chat_endpoint(websocket: WebSocket, email: str):
     await websocket.accept()
@@ -244,6 +243,20 @@ async def chat_endpoint(websocket: WebSocket, email: str):
 async def get_messages(service_id: str):
     return db.session \
         .query(ChatMessage).filter(ChatMessage.service_id == service_id).all()
+
+
+@app.post("/admin/approve/{email}")
+async def approve_volunteer(email: str):
+    volunteer = db.session.query(UserModelDB).filter(
+        UserModelDB.email == email
+    ).first()
+
+    if not volunteer:
+        return {"error": "Volunteer not found"}, 404
+
+    volunteer.approve = True
+    db.session.commit()
+    return {"status": "approved"}
 
 @app.get("/user/get_institutions")
 async def get_institutions():
@@ -273,10 +286,12 @@ async def feedback(
         feedback_db = Feedback(**feedback_form)
         db.session.add(feedback_db)
         db.session.commit()
-        if "admin@admin.com" in connected_clients:
-            await connected_clients["admin@admin.com"].send_text(json.dumps({
-                "type": "new_feedback"
-            }))
+
+        for email, (name, password) in captain_institutions.items():
+            if email in connected_clients:
+                await connected_clients[email].send_text(json.dumps({
+                    "type": "new_feedback"
+                }))
         return {"message": "feedbacked sented"}
     except Exception as e:
         db.session.rollback()
@@ -640,8 +655,11 @@ async def delete_user(email: str, current_user: Annotated[UserBase, Depends(Auth
         user = db.get_user_by_email(email)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-        if user.email == "admin@admin.com":
-            raise HTTPException(status_code=404, detail="do you hate your life")
+
+        for email, (name, password) in captain_institutions.items():
+            if user.email == email:
+                raise HTTPException(status_code=404, detail="do you hate your life")
+
         record = db.get_elder_record_by_email(user.email, user.user_type)
         if record is not None:
             if user.user_type == "elder":

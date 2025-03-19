@@ -8,6 +8,8 @@ from fastapi.security import OAuth2PasswordBearer
 from db_op import DB
 from model import UserBase, ElderStatus, get_record_form
 from authenticate import Authent
+from institutions import captain_institutions
+
 
 class Autherize:
     oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -77,7 +79,7 @@ class Autherize:
         if record.status != ElderStatus.searching_a_volunteer:
             raise Autherize.auth_exception("already assigned or not requested for searching")
         return (current_user, record)
-    
+
     @staticmethod
     def dep_update_record(record_form: Annotated[dict, Depends(get_record_form)], current_user: Annotated[UserBase, Depends(dep_only_volunteer)]):
         record = Autherize.db.get_elder_record_by_email(current_user.email, current_user.user_type)
@@ -104,9 +106,10 @@ class Autherize:
             partner = Autherize.db.get_user_by_email(record.user_email)
 
         return (current_user, Autherize.db.from_DBModel_to_responseModel(partner), record) 
-    
+
     @staticmethod
     def dep_only_admin(current_user: Annotated[UserBase, Depends(dep_get_current_user)]):
-        if current_user.email == "admin@admin.com" and Authent.verify_password("admin123", current_user.password):
-            return current_user
+        for email, (name, password) in captain_institutions.items():
+            if current_user.email == email and Authent.verify_password(password, current_user.password):
+                return current_user
         raise Autherize.auth_exception("invalid admin credentials")

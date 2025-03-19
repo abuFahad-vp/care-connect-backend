@@ -25,7 +25,7 @@ class DB:
 
             pwd_bytes = password.encode('utf-8')
             gen_salt = bcrypt.gensalt()
-            new_pass = bcrypt.hashpw(pwd_bytes, gen_salt)
+            new_pass = bcrypt.hashpw(pwd_bytes, gen_salt).decode('utf-8')
 
             captian = UserModelDB(
                 user_type="volunteer",
