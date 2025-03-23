@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, \
-    Query, status, UploadFile, WebSocket
+    Query, status, UploadFile, WebSocket, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated, Tuple, Dict
 from model import *
@@ -47,6 +47,15 @@ lock = asyncio.Lock()
 @app.get("/ping")
 async def ping():
     return {"message": "pinged"}
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 
 @app.post("/signup", response_model=UserBase)
@@ -644,8 +653,21 @@ async def get_users_email(email: str):
         )
 
 
+@app.get("/admin/get_all_users")
+async def get_all_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+    try:
+        users = db.session.query(UserModelDB).all()
+        return users
+    except Exception as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)}
+        )
+
+
 @app.get("/admin/users")
-async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
+async def get_users_acc(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
         users = db.session.query(UserModelDB).all()
         return users
