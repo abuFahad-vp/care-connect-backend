@@ -73,4 +73,24 @@ class ChatMessage(Base):
     status = Column(Text, default=False)
 
 
+class ServicesModel(Base):
+    __tablename__ = "service_forms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_id = Column(String, nullable=False)
+    data = Column(String, nullable=False)
+
+
+class WeekendRecord(Base):
+    __tablename__ = "weekend_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    service_id = Column(Text, nullable=True)
+    user_email = Column(String(255), nullable=False)
+    volunteer_email = Column(String(255), nullable=False)
+    data = Column(String, nullable=True)
+    last_check_in = Column(DateTime(), nullable=True)
+    status = Column(String(30), nullable=False)
+
+
 Base.metadata.create_all(engine)

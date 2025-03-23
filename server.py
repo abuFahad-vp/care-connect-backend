@@ -1,13 +1,15 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, status, UploadFile, WebSocket, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, \
+    Query, status, UploadFile, WebSocket
 from fastapi.security import OAuth2PasswordRequestForm
 from typing import Annotated, Tuple, Dict
-from datetime import timedelta
 from model import *
+from model import UserBase
 from fastapi.responses import JSONResponse, FileResponse
 from autherize import Autherize
 from authenticate import Authent
 from db_op import DB
-from db_init import ElderRecord, UserModelDB, Feedback, ChatMessage
+from db_init import ElderRecord, UserModelDB, \
+    Feedback, ChatMessage, ServicesModel, WeekendRecord
 from util import Util
 from datetime import datetime, timedelta
 import os
@@ -17,6 +19,7 @@ import uuid
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 from institutions import captain_institutions
+import copy
 
 
 app = FastAPI()
@@ -40,9 +43,11 @@ new_volunteer_request_queue = asyncio.Queue()
 active_services: Dict[str, dict] = {}
 lock = asyncio.Lock()
 
+
 @app.get("/ping")
 async def ping():
     return {"message": "pinged"}
+
 
 @app.post("/signup", response_model=UserBase)
 async def register(
@@ -89,6 +94,7 @@ async def register(
             content={"detail": str(e)}
         )
 
+
 @app.post("/token")
 async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     user = Authent.authenticate_user(db, form_data.username, form_data.password)
@@ -103,6 +109,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
         data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer", "data": user}
+
 
 # websocket
 @app.websocket("/ws")
@@ -121,8 +128,12 @@ async def websocket_endpoint(websocket: WebSocket):
             # print("Websocket msg: ", response)
             if response["type"] == "load_aayi":
                     for service_id, service in active_services.items():
-                        if (service["status"] == ServiceStatus.PENDING and 
-                        current_time < service["timeout_end"] and
+
+                        timeout_end = datetime.strptime(
+                            service["timeout_end"], "%Y-%m-%d %H:%M:%S")
+
+                        if (service["status"] == ServiceStatus.PENDING and
+                        current_time < timeout_end and
                         current_user.email not in service["notified_volunteers"]):
 
                             request = {
@@ -217,6 +228,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print("ERROR: ", e)
         del connected_clients[current_user.email]
 
+
 @app.websocket("/chat/{email}")
 async def chat_endpoint(websocket: WebSocket, email: str):
     await websocket.accept()
@@ -258,6 +270,7 @@ async def approve_volunteer(email: str):
     db.session.commit()
     return {"status": "approved"}
 
+
 @app.get("/user/get_institutions")
 async def get_institutions():
     ins = {}
@@ -268,7 +281,7 @@ async def get_institutions():
 
 @app.get("/user/know_your_partner")
 async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
-    _, partner, record =  request
+    _, partner, record = request
     partner = partner.model_dump(exclude={"password"})
     return {
         "partner": partner,
@@ -300,13 +313,16 @@ async def feedback(
             content={"detail": str(e)}
         )
 
+
 @app.get("/user/me", response_model=UserBase)
 async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
     return current_user
 
+
 @app.get("/user/me/type", response_model=UserBase)
 async def read_users_me(current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]):
     return {"type": current_user.user_type}
+
 
 @app.post("/user/unassign")
 async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], Depends(Autherize.dep_elder_volunteer_linked)]):
@@ -331,6 +347,7 @@ async def unassign(request: Annotated[Tuple[UserBase, UserBase, ElderRecord], De
 
     return {"message": "unassigned"}
 
+
 # elder endpoints
 @app.post("/elder/new_volunteer_request")
 async def new_volunteer_request(current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
@@ -345,20 +362,6 @@ async def new_volunteer_request(current_user: Annotated[UserBase, Depends(Auther
         return {"message": ElderStatus.searching_a_volunteer}
     return {"message": "updated"}
 
-async def monitor_service(service_id: str):
-    while True:
-        service = active_services.get(service_id)
-        if service is None:
-            break
-
-        if service["status"] != "accepted":
-            del active_services[service_id]
-            print("Service with service id:", service_id, "deleted.")
-            for filename in os.listdir("uploads"):
-                    if filename.startswith(service_id) and os.path.isfile(f"uploads/{filename}"):
-                        os.remove(f"uploads/{filename}")
-                        break
-        await asyncio.sleep(1)
 
 @app.post("/elder/new_service_request/{timeout_end}/{urgent}")
 async def new_service_request(
@@ -366,7 +369,7 @@ async def new_service_request(
     urgent: bool,
     service_form: Annotated[ServiceRequestForm, Depends(ServiceRequestForm)],
     current_user: Annotated[UserBase, Depends(Autherize.dep_only_elder)],
-    ):
+        ):
 
     service_id = str(uuid.uuid4())
     try:
@@ -396,10 +399,10 @@ async def new_service_request(
         active_services[service_id] = {
             "elder_email": current_user.email,
             "status": ServiceStatus.PENDING,
-            "created_at": datetime.now(),
+            "created_at": str(datetime.now()),
             "service_form": service_form_text,
             "notified_volunteers": [],
-            "timeout_end": timeout_end,
+            "timeout_end": str(timeout_end),
             "elder_profile": str_userbase(current_user)
         }
 
@@ -419,42 +422,24 @@ async def new_service_request(
             if volunteer.email in connected_clients:
                 websocket = connected_clients[volunteer.email]
                 await websocket.send_text(json.dumps(request))
+                print(f"task with service id: {service_id} sent to {volunteer.email}")
                 active_services[service_id]["notified_volunteers"].append(volunteer.email)
-        
+
+        db.session.add(
+            ServicesModel(
+                service_id=service_id,
+                data=json.dumps(active_services[service_id]))
+        )
+        db.session.commit()
+
         return {"status": "pending", "service_id": service_id}
-
-        # try:
-        #     while True:
-        #         remaining_time = (timeout_end - datetime.now()).total_seconds()
-        #         if remaining_time <= 0:
-        #             raise asyncio.TimeoutError
-
-        #         print("Here 1: remaingin time: ", remaining_time)
-        #         message: str = await asyncio.wait_for(new_service_request_queue.get(), timeout=remaining_time)
-        #         print("Here 2")
-        #         message = message.split(":")
-                
-        #         if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
-        #             volunteer_profile = db.from_DBModel_to_responseModel(db.get_user_by_email(message[4]))
-        #             active_services[service_id]["volunteer_email"] = volunteer_profile.email
-        #             active_services[service_id]["status"] = ServiceStatus.ACCEPTED
-        #             background_tasks.add_task(monitor_service, service_id)
-
-        #             for email in active_services[service_id]["notified_volunteers"]:
-        #                 if email != volunteer_profile.email and email in connected_clients:
-        #                     await connected_clients[email].send_text(json.dumps({
-        #                         "type": "service_cancelled",
-        #                         "service_id": service_id,
-        #                         "reason": "accepted_by_another"
-        #                     }))
-
-        # except asyncio.TimeoutError:
-        #     del active_services[service_id]
-        #     return JSONResponse(status_code=408, content={"detail":"Time Out. No volunteer accepted the request", "service_id": service_id})
 
     except Exception as e:
         db.session.rollback()
-        return JSONResponse(status_code=422, content={"detail": str(e), "service_id": service_id})
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e), "service_id": service_id})
+
 
 # this will keep searching until a volunteer is found or timeout
 @app.get("/elder/find_assign_volunteer/{timeout}")
@@ -516,7 +501,7 @@ async def find_assign_volunteer(
                             db.session.commit()
                             return JSONResponse(
                                 status_code=200,
-                                content={"detail": "Volunteer assigned successfully", "service_id": service_id },
+                                content={"detail": "Volunteer assigned successfully", "service_id": service_id},
                             )
                     except Exception:
                         # Handle connection or other errors
@@ -537,37 +522,60 @@ async def find_assign_volunteer(
         db.session.rollback()
         return JSONResponse(status_code=422, content={"detail": str(e)})
 
+
 @app.get("/elder/record")
 async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
     return db.get_elder_record_by_email(user.email, user.user_type)
 
+
 # volunteer endpoints
 @app.post("/volunteer/update_record")
-async def update_record(request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
+async def update_record(
+        request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
     try:
         record_form, record, volunteer = request
-        # record.blood_pressure = record_form["blood_pressure"]
-        # record.heart_rate = record_form["heart_rate"]
-        # record.blood_sugar = record_form["blood_sugar"]
-        # record.oxygen_saturation = record_form["oxygen_saturation"]
-        # record.weight = record_form["weight"]
-        # record.height = record_form["height"]
         record.data = record_form["data"]
         record.last_check_in = datetime.now()
         volunteer.volunteer_credits += 50
+
+        db.session.add(WeekendRecord(
+            service_id=record.service_id,
+            user_email=record.user_email,
+            volunteer_email=record.volunteer_email,
+            data=record.data,
+            last_check_in=record.last_check_in,
+            status=record.status
+        ))
+
         db.session.commit()
+
         if record.user_email in connected_clients:
             await connected_clients[record.user_email].send_text(json.dumps({
                 "type": "volunteer_service",
                 "message": "record_updated"
             }))
-        return {"message":"updated"}
+
+        if record.volunteer_email in connected_clients:
+            await connected_clients[record.volunteer_email].send_text(
+                json.dumps({
+                    "type": "volunteer_service",
+                    "message": "record_updated"
+                }))
+
+        for email, (name, password) in captain_institutions.items():
+            if email in connected_clients:
+                await connected_clients[email].send_text(
+                    json.dumps({"message": "record_updated"}))
+
+        return {"message": "updated"}
+
     except Exception as e:
         db.session.rollback()
         return JSONResponse(
             status_code=422,
             content={"detail": str(e)}
         )
+
 
 @app.get("/volunteer/get_documents/{service_id}/{document}")
 async def update_record(service_id: str, document: str, token: str = Query(...)):
@@ -578,7 +586,7 @@ async def update_record(service_id: str, document: str, token: str = Query(...))
     current_user = Autherize.dep_get_current_user(token)
     current_user = Autherize.dep_only_volunteer(current_user)
 
-    try: 
+    try:
         if service_id not in active_services:
             raise ValueError("Invalid service_id or there's no service running")
 
@@ -596,10 +604,7 @@ async def update_record(service_id: str, document: str, token: str = Query(...))
 
         if not os.path.isfile(file):
             raise ValueError("file not found")
-        
         return FileResponse(file, status_code=200, media_type="application/octet-stream",filename=filename)
-        
-        
 
     except Exception as e:
         db.session.rollback()
@@ -622,6 +627,7 @@ async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only
             content={"detail": str(e)}
         )
 
+
 @app.get("/admin/users/{email}")
 async def get_users_email(email: str):
     try:
@@ -637,6 +643,7 @@ async def get_users_email(email: str):
             content={"detail": str(e)}
         )
 
+
 @app.get("/admin/users")
 async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
@@ -648,6 +655,7 @@ async def get_users(current_user: Annotated[UserBase, Depends(Autherize.dep_only
             status_code=422,
             content={"detail": str(e)}
         )
+
 
 @app.delete("/admin/delete/{email}")
 async def delete_user(email: str, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
@@ -677,6 +685,7 @@ async def delete_user(email: str, current_user: Annotated[UserBase, Depends(Auth
             content={"detail": str(e)}
         )
 
+
 @app.get("/admin/feedback")
 async def get_users_feedback(current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
     try:
@@ -688,6 +697,7 @@ async def get_users_feedback(current_user: Annotated[UserBase, Depends(Autherize
             status_code=422,
             content={"detail": str(e)}
         )
+
 
 @app.put("/admin/feedback/review/{id}")
 async def feedback_reviewed(id: int, current_user: Annotated[UserBase, Depends(Autherize.dep_only_admin)]):
@@ -705,7 +715,57 @@ async def feedback_reviewed(id: int, current_user: Annotated[UserBase, Depends(A
         return {"message": "updated"}
     except Exception as e:
         db.session.rollback()
-        return JSONResponse(
-            status_code=422,
-           content={"detail": str(e)}
-        )
+        return JSONResponse(status_code=422, content={"detail": str(e)})
+
+
+@app.get("/admin/get_services")
+async def get_services():
+    service_forms: ServicesModel = db.session.query(ServicesModel).all()
+    return service_forms
+
+
+@app.get("/admin/get_weekend_records")
+async def get_weekend_records():
+    records = db.session.query(WeekendRecord).all()
+    return records
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the background monitoring task on FastAPI startup."""
+    asyncio.create_task(watch_dict())
+
+
+async def watch_dict():
+    previous_state = copy.deepcopy(active_services)
+    while True:
+        await asyncio.sleep(1)
+        if active_services != previous_state:
+            print("Change detected! Running function...")
+            await on_change()
+            previous_state = copy.deepcopy(active_services)
+
+
+async def on_change():
+    service_forms: ServicesModel = db.session.query(ServicesModel).all()
+    for forms in service_forms:
+        if forms.service_id in active_services:
+            forms.data = json.dumps(active_services[forms.service_id])
+    db.session.commit()
+    for email, (name, password) in captain_institutions.items():
+        if email in connected_clients:
+            await connected_clients[email].send_text(
+                json.dumps({"message": "task_updated"}))
+
+    for forms in service_forms:
+        if forms.service_id in active_services:
+            if active_services[forms.service_id]["elder_email"] in connected_clients:
+                elder_email = active_services[forms.service_id]["elder_email"]
+                await connected_clients[elder_email].send_text(
+                    json.dumps({"message": "task_updated"}))
+
+            if "volunteer_email" in active_services[forms.service_id]:
+                volunteer_email = active_services[forms.service_id]["volunteer_email"]
+                if volunteer_email in connected_clients:
+                    await connected_clients[volunteer_email].send_text(
+                        json.dumps({"message": "task_updated"}))
