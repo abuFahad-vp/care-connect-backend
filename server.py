@@ -298,6 +298,22 @@ async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRe
     }
 
 
+@app.post("/user/update/{email}/{username}/{number}")
+async def update_profile(email: str, username: str, number: str):
+    try:
+        user = db.get_user_by_email(email)
+        user.full_name = username
+        user.contact_number = number
+        db.session.commit()
+        return {"message": "updated"}
+    except Exception as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)}
+        )
+
+
 @app.post("/user/feedback")
 async def feedback(
         feedback_form: Annotated[dict, Depends(get_feedback)], 
