@@ -137,6 +137,23 @@ async def get_record_form(
         "data": data
     }
 
+
+async def update_user_data(
+    full_name: Annotated[Optional[str], Form()] = None,
+    contact_number: Annotated[Optional[str], Form()] = None,
+    location: Annotated[Optional[str], Form()] = None,
+    bio: Annotated[Optional[str], Form()] = None,
+    profile_image: Annotated[Optional[UploadFile], File()] = None,
+):
+    return {
+        "full_name": full_name,
+        "contact_number": contact_number,
+        "location": location,
+        "bio": bio,
+        "profile_image": profile_image,
+    }
+
+
 async def get_user_data(
     user_type: Annotated[Literal["volunteer", "elder"], Form()],
     full_name: Annotated[str, Form()],

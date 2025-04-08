@@ -167,7 +167,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if service_id in active_services:
                     service = active_services[service_id]
 
-                    if (service["status"] == ServiceStatus.PENDING and 
+                    if (service["status"] == ServiceStatus.PENDING and
                     response["status"] == ServiceStatus.ACCEPTED and
                     current_user.user_type == "volunteer"):
                             service["volunteer_email"] = current_user.email
@@ -298,12 +298,35 @@ async def know_your_partner(request: Annotated[Tuple[UserBase, UserBase, ElderRe
     }
 
 
-@app.post("/user/update/{email}/{username}/{number}")
-async def update_profile(email: str, username: str, number: str):
+@app.post("/user/update/{email}")
+async def update_profile(
+    email: str,
+    user_data: Annotated[dict, Depends(update_user_data)]
+):
     try:
         user = db.get_user_by_email(email)
-        user.full_name = username
-        user.contact_number = number
+        if not user:
+            raise ValueError("User not found")
+
+        if user_data.get("full_name"):
+            user.full_name = user_data["full_name"]
+
+        if user_data.get("contact_number"):
+            user.contact_number = user_data["contact_number"]
+
+        if user_data.get("location"):
+            user.location = user_data["location"]
+
+        if user_data.get("bio"):
+            user.bio = user_data["bio"]
+
+        profile_image: UploadFile = user_data.get("profile_image")
+        if profile_image:
+            profile_image = await Authent.authenticate_file(
+                profile_image, 500 * 1024, ["jpg", "jpeg", "png"]
+            )
+            user.profile_image = profile_image
+
         db.session.commit()
         return {"message": "updated"}
     except Exception as e:
@@ -316,7 +339,7 @@ async def update_profile(email: str, username: str, number: str):
 
 @app.post("/user/feedback")
 async def feedback(
-        feedback_form: Annotated[dict, Depends(get_feedback)], 
+        feedback_form: Annotated[dict, Depends(get_feedback)],
         current_user: Annotated[UserBase, Depends(Autherize.dep_get_current_user)]
     ):
     try:
