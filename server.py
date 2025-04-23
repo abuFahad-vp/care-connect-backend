@@ -535,14 +535,14 @@ async def find_assign_volunteer(
                         request = {
                             "type": "new_volunteer_request",
                             "elder_profile": str_userbase(current_user),
-                            "timeout": str(datetime.now() + timedelta(seconds=timeout)),
+                            "timeout": timeout,
                             "service_id": service_id
                         }
                         await websocket.send_text(json.dumps(request))
                         message = await asyncio.wait_for(new_volunteer_request_queue.get(), timeout=timeout)
                         new_volunteer_request_queue.task_done()
                         message = message.split(":")
-                        if message[1] == "accept" and message[2] == current_user.email:
+                        if message[1] == "accept" and message[2] == current_user.email and message[3] == service_id:
                             record.volunteer_email = volunteer.email
                             record.status = ElderStatus.assigned
                             record.service_id = service_id
@@ -577,6 +577,24 @@ async def record(user: Annotated[UserBase, Depends(Autherize.dep_only_elder)]):
 
 
 # volunteer endpoints
+
+@app.get("/volunteer/can_assign/{email}")
+async def can_assign(email: str):
+    try:
+        record: ElderRecord = db.get_elder_record_by_email(email, "elder")
+        print(record.status)
+        if (record.status != "assigned"):
+            return {"status": True}
+        else:
+            return JSONResponse(status_code=422, content={"status": False})
+    except Exception as e:
+        db.session.rollback()
+        return JSONResponse(
+            status_code=422,
+            content={"detail": str(e)}
+        )
+
+
 @app.post("/volunteer/update_record")
 async def update_record(
         request: Annotated[Tuple[dict, ElderRecord, UserModelDB], Depends(Autherize.dep_update_record)]):
